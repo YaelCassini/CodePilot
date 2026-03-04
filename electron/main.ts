@@ -5,6 +5,9 @@ import fs from 'fs';
 import net from 'net';
 import os from 'os';
 
+const CLAUDE_BINARY_NAME = 'claude-internal';
+const CLAUDE_NPM_PACKAGE = '@tencent/claude-code-internal';
+
 let mainWindow: BrowserWindow | null = null;
 let serverProcess: Electron.UtilityProcess | null = null;
 let serverPort: number | null = null;
@@ -570,7 +573,7 @@ app.whenReady().then(async () => {
       const claudeOpts = process.platform === 'win32'
         ? { ...execOpts, shell: true }
         : execOpts;
-      const result = execFileSync('claude', ['--version'], claudeOpts);
+      const result = execFileSync(CLAUDE_BINARY_NAME, ['--version'], claudeOpts);
       claudeVersion = result.trim();
       hasClaude = true;
     } catch {
@@ -601,7 +604,7 @@ app.whenReady().then(async () => {
     }
     steps.push(
       { id: 'check-node', label: 'Checking Node.js', status: 'pending' },
-      { id: 'install-claude', label: 'Installing Claude Code', status: 'pending' },
+      { id: 'install-claude', label: `Installing ${CLAUDE_BINARY_NAME}`, status: 'pending' },
       { id: 'verify', label: 'Verifying installation', status: 'pending' },
     );
 
@@ -741,13 +744,13 @@ app.whenReady().then(async () => {
 
         // Step 2: Install Claude Code via npm
         setStep('install-claude', 'running');
-        addLog('Running: npm install -g @anthropic-ai/claude-code');
+        addLog(`Running: npm install -g ${CLAUDE_NPM_PACKAGE}`);
 
         const npmInstallSuccess = await new Promise<boolean>((resolve) => {
           const isWin = process.platform === 'win32';
           const npmCmd = isWin ? 'npm.cmd' : 'npm';
 
-          const child = spawn(npmCmd, ['install', '-g', '@anthropic-ai/claude-code'], {
+          const child = spawn(npmCmd, ['install', '-g', CLAUDE_NPM_PACKAGE], {
             env: execEnv,
             shell: isWin,
             stdio: ['ignore', 'pipe', 'pipe'],
@@ -809,13 +812,13 @@ app.whenReady().then(async () => {
           const verifyOpts = process.platform === 'win32'
             ? { timeout: 5000, encoding: 'utf-8' as const, env: execEnv, shell: true }
             : { timeout: 5000, encoding: 'utf-8' as const, env: execEnv };
-          const claudeResult = execFileSync('claude', ['--version'], verifyOpts);
-          addLog(`Claude Code installed: ${claudeResult.trim()}`);
+          const claudeResult = execFileSync(CLAUDE_BINARY_NAME, ['--version'], verifyOpts);
+          addLog(`${CLAUDE_BINARY_NAME} installed: ${claudeResult.trim()}`);
           setStep('verify', 'success');
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           addLog(`Verification failed: ${msg}`);
-          setStep('verify', 'failed', 'Claude Code was installed but could not be verified.');
+          setStep('verify', 'failed', `${CLAUDE_BINARY_NAME} was installed but could not be verified.`);
           installState.status = 'failed';
           sendProgress();
           return;

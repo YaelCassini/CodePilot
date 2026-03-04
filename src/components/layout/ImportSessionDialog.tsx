@@ -212,7 +212,7 @@ export function ImportSessionDialog({
                 <p className="text-xs mt-1 opacity-60">
                   {searchQuery
                     ? "Try a different search term"
-                    : "Sessions are stored in ~/.claude/projects/"}
+                    : "Sessions are stored in ~/.claude-internal/projects/"}
                 </p>
               </div>
             ) : (

@@ -136,7 +136,7 @@ interface ContentBlock {
  * Get the Claude Code projects directory.
  */
 export function getClaudeProjectsDir(): string {
-  return path.join(os.homedir(), '.claude', 'projects');
+  return path.join(os.homedir(), '.claude-internal', 'projects');
 }
 
 /**

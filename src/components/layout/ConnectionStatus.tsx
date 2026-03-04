@@ -180,21 +180,21 @@ export function ConnectionStatus() {
               <div>
                 <h4 className="font-medium mb-1.5">1. {t('connection.installClaude')}</h4>
                 <code className="block rounded-md bg-muted px-3 py-2 text-xs">
-                  npm install -g @anthropic-ai/claude-code
+                  npm install -g @tencent/claude-code-internal
                 </code>
               </div>
 
               <div>
                 <h4 className="font-medium mb-1.5">2. Authenticate</h4>
                 <code className="block rounded-md bg-muted px-3 py-2 text-xs">
-                  claude login
+                  claude-internal login
                 </code>
               </div>
 
               <div>
                 <h4 className="font-medium mb-1.5">3. Verify Installation</h4>
                 <code className="block rounded-md bg-muted px-3 py-2 text-xs">
-                  claude --version
+                  claude-internal --version
                 </code>
               </div>
 

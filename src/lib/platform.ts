@@ -6,6 +6,8 @@ import path from 'path';
 
 const execFileAsync = promisify(execFile);
 
+export const CLAUDE_BINARY_NAME = 'claude-internal';
+
 export const isWindows = process.platform === 'win32';
 export const isMac = process.platform === 'darwin';
 
@@ -65,17 +67,17 @@ export function getClaudeCandidatePaths(): string[] {
     const candidates: string[] = [];
     for (const dir of baseDirs) {
       for (const ext of exts) {
-        candidates.push(path.join(dir, 'claude' + ext));
+        candidates.push(path.join(dir, CLAUDE_BINARY_NAME + ext));
       }
     }
     return candidates;
   }
   return [
-    '/usr/local/bin/claude',
-    '/opt/homebrew/bin/claude',
-    path.join(home, '.npm-global', 'bin', 'claude'),
-    path.join(home, '.local', 'bin', 'claude'),
-    path.join(home, '.claude', 'bin', 'claude'),
+    `/usr/local/bin/${CLAUDE_BINARY_NAME}`,
+    `/opt/homebrew/bin/${CLAUDE_BINARY_NAME}`,
+    path.join(home, '.npm-global', 'bin', CLAUDE_BINARY_NAME),
+    path.join(home, '.local', 'bin', CLAUDE_BINARY_NAME),
+    path.join(home, '.claude', 'bin', CLAUDE_BINARY_NAME),
   ];
 }
 
@@ -141,7 +143,7 @@ function _findClaudeBinaryUncached(): string | undefined {
   // Fallback: use `where` (Windows) or `which` (Unix) with expanded PATH
   try {
     const cmd = isWindows ? 'where' : '/usr/bin/which';
-    const args = isWindows ? ['claude'] : ['claude'];
+    const args = [CLAUDE_BINARY_NAME];
     const result = execFileSync(cmd, args, {
       timeout: 3000,
       stdio: 'pipe',
