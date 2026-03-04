@@ -46,6 +46,16 @@ const PROVIDER_MODEL_LABELS: Record<string, { value: string; label: string }[]> 
     { value: 'opus', label: 'MiniMax-M2.5' },
     { value: 'haiku', label: 'MiniMax-M2.5' },
   ],
+  'https://copilot.code.woa.com/server/chat/codebuddy-gateway/codebuddy-code': [
+    { value: 'sonnet', label: 'Sonnet 4.6 (Default)' },
+    { value: 'opus',   label: 'Opus 4.6' },
+    { value: 'haiku',  label: 'GLM-4.7 / DeepSeek-v3.1' },
+  ],
+  'https://copilot.code.woa.com/server/chat/codebuddy-gateway-offline/codebuddy-code': [
+    { value: 'sonnet', label: 'Sonnet 4.6 (Default)' },
+    { value: 'opus',   label: 'Opus 4.6' },
+    { value: 'haiku',  label: 'GLM-4.7 / DeepSeek-v3.1' },
+  ],
   'https://openrouter.ai/api': [
     { value: 'sonnet', label: 'Sonnet 4.6' },
     { value: 'opus', label: 'Opus 4.6' },
