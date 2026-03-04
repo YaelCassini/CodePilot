@@ -331,6 +331,12 @@ function migrateDb(db: Database.Database): void {
   if (!colNames.includes('runtime_error')) {
     db.exec("ALTER TABLE chat_sessions ADD COLUMN runtime_error TEXT NOT NULL DEFAULT ''");
   }
+  if (!colNames.includes('allowed_tools')) {
+    db.exec("ALTER TABLE chat_sessions ADD COLUMN allowed_tools TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!colNames.includes('disallowed_tools')) {
+    db.exec("ALTER TABLE chat_sessions ADD COLUMN disallowed_tools TEXT NOT NULL DEFAULT '[]'");
+  }
   db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_runtime_status ON chat_sessions(runtime_status)");
 
   // Migrate is_active provider to default_provider_id setting
@@ -757,6 +763,16 @@ export function updateSessionMode(id: string, mode: string): void {
   db.prepare('UPDATE chat_sessions SET mode = ? WHERE id = ?').run(mode, id);
 }
 
+export function updateSessionAllowedTools(id: string, tools: string[]): void {
+  const db = getDb();
+  db.prepare('UPDATE chat_sessions SET allowed_tools = ? WHERE id = ?').run(JSON.stringify(tools), id);
+}
+
+export function updateSessionDisallowedTools(id: string, tools: string[]): void {
+  const db = getDb();
+  db.prepare('UPDATE chat_sessions SET disallowed_tools = ? WHERE id = ?').run(JSON.stringify(tools), id);
+}
+
 // ==========================================
 // Message Operations
 // ==========================================
@@ -809,6 +825,12 @@ export function addMessage(
   updateSessionTimestamp(sessionId);
 
   return db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as Message;
+}
+
+export function getMessageCount(sessionId: string): number {
+  const db = getDb();
+  const row = db.prepare('SELECT COUNT(*) as count FROM messages WHERE session_id = ?').get(sessionId) as { count: number };
+  return row.count;
 }
 
 export function updateMessageContent(messageId: string, content: string): number {

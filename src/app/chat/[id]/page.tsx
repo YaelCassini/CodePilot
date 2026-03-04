@@ -5,7 +5,7 @@ import Link from 'next/link';
 import type { Message, MessagesResponse, ChatSession } from '@/types';
 import { ChatView } from '@/components/chat/ChatView';
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Loading02Icon, PencilEdit01Icon } from "@hugeicons/core-free-icons";
+import { Loading02Icon, PencilEdit01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePanel } from '@/hooks/usePanel';
@@ -27,6 +27,9 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   const [sessionMode, setSessionMode] = useState<string>('');
   const [projectName, setProjectName] = useState<string>('');
   const [sessionWorkingDir, setSessionWorkingDir] = useState<string>('');
+  const [sessionSdkId, setSessionSdkId] = useState<string>('');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncKey, setSyncKey] = useState(0);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -69,6 +72,35 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
     }
   }, [handleSaveTitle]);
 
+  const handleSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const res = await fetch('/api/claude-sessions/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: id }),
+      });
+      const data = await res.json();
+      if (data.total > 0) {
+        // Reload messages to show newly synced content
+        const msgRes = await fetch(`/api/chat/sessions/${id}/messages?limit=30`);
+        if (msgRes.ok) {
+          const msgData: MessagesResponse = await msgRes.json();
+          setMessages(msgData.messages);
+          setHasMore(msgData.hasMore ?? false);
+          // Force ChatView to remount so it picks up the new initialMessages
+          setSyncKey((k) => k + 1);
+        }
+        window.dispatchEvent(new CustomEvent('session-updated'));
+      }
+    } catch {
+      // silently ignore sync errors
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [id, isSyncing]);
+
   useEffect(() => {
     if (isEditingTitle && titleInputRef.current) {
       titleInputRef.current.focus();
@@ -102,6 +134,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           setSessionProviderId(data.session.provider_id || '');
           setSessionMode(data.session.mode || 'code');
           setProjectName(data.session.project_name || '');
+          setSessionSdkId(data.session.sdk_session_id || '');
         }
       } catch {
         // Session info load failed - panel will still work without directory
@@ -175,7 +208,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
       {/* Chat title bar */}
       {sessionTitle && (
         <div
-          className="flex h-12 shrink-0 items-center justify-center px-4 gap-1"
+          className="relative flex h-12 shrink-0 items-center justify-center px-4 gap-1"
           style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
         >
           {projectName && (
@@ -237,9 +270,30 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
               </button>
             </div>
           )}
+          {/* Sync button — only visible for sessions imported from Claude Code CLI */}
+          {sessionSdkId && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleSync}
+                  disabled={isSyncing}
+                  className="absolute right-4 p-1 rounded hover:bg-muted transition-colors disabled:opacity-50"
+                  style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                >
+                  <HugeiconsIcon
+                    icon={RefreshIcon}
+                    className={`h-3.5 w-3.5 text-muted-foreground ${isSyncing ? 'animate-spin' : ''}`}
+                  />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Sync from Claude Code CLI</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
       )}
-      <ChatView key={id} sessionId={id} initialMessages={messages} initialHasMore={hasMore} modelName={sessionModel} initialMode={sessionMode} providerId={sessionProviderId} />
+      <ChatView key={`${id}-${syncKey}`} sessionId={id} initialMessages={messages} initialHasMore={hasMore} modelName={sessionModel} initialMode={sessionMode} providerId={sessionProviderId} />
     </div>
   );
 }

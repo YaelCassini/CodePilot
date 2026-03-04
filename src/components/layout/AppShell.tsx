@@ -373,6 +373,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [fetchSkipPermissions]);
 
+  // Sync all imported Claude Code sessions on app startup (fire-and-forget)
+  useEffect(() => {
+    fetch('/api/claude-sessions/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.total > 0) {
+          window.dispatchEvent(new CustomEvent('session-updated'));
+        }
+      })
+      .catch(() => {
+        // Silently ignore sync errors on startup
+      });
+  }, []); // Run once on mount
+
   // --- Update check state ---
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
