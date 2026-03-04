@@ -172,21 +172,31 @@ git merge origin/main
 chore: sync upstream v{上游最新版本号}
 ```
 
-**有冲突时**，按以下规则处理：
+**有冲突时**，按三级策略处理，优先级从高到低：
 
-- **普通代码文件冲突**（src/、electron/、components/ 等）：
-  优先采用上游版本，自动执行：
-  ```bash
-  git checkout --theirs <冲突文件>
-  git add <冲突文件>
+**Level 1 — CLAUDE.md（用户工作流文件，绝对保护）**
+- 无论何时必须暂停，用 `git diff` 展示冲突差异，等待用户明确决定后再处理，不可静默覆盖。
+
+**Level 2 — 用户在 fork 中改动过的文件**
+- 判断方式：对每个冲突文件执行 `git log --oneline <分叉点>..HEAD -- <文件>`，若有来自本地（YaelCassini）的 commit 记录，则视为用户改动过。
+- 处理方式：先展示 diff（`git diff --theirs -- <文件>`，即"接受上游会丢失什么"），再询问用户：
+  - **yes** → `git checkout --theirs <文件> && git add <文件>`
+  - **no** → `git checkout --ours <文件> && git add <文件>`
+- 逐文件暂停确认，全部处理完后继续 merge commit。
+
+**Level 3 — 用户从未改动过的纯上游文件**
+- 自动执行：`git checkout --theirs <文件> && git add <文件>`，不暂停。
+- 所有 Level 3 文件处理完后，**必须汇报**以下内容：
   ```
-  处理完所有文件后继续 merge commit。
+  以下文件已自动采用上游版本（你在 fork 中未修改过）：
+  - src/xxx.ts：上游新增 N 行，删除 M 行（涉及函数：funcA、funcB）
+  - electron/yyy.ts：上游修改 N 行（变更逻辑：funcC）
+  如需恢复某文件到合并前状态，执行：git checkout ORIG_HEAD -- <文件路径>
+  ```
+  diff 超过 50 行的文件只展示统计数字 + 函数/类名列表，不展开全文。
 
-- **CLAUDE.md 冲突**（用户自定义工作流文件，不可静默覆盖）：
-  必须暂停，向用户展示冲突差异，等待用户明确决定后再处理。
-
-- **其他配置文件冲突**（package.json、electron-builder.yml 等）：
-  向用户展示差异，说明两方改动内容，等待用户决定保留哪一方。
+**其他配置文件冲突**（package.json、electron-builder.yml 等）：
+- 向用户展示差异，说明两方改动内容，等待用户决定保留哪一方。
 
 若遇到无法自动处理的复杂冲突，输出冲突文件列表，告知用户需要手动介入，暂停工作流。
 
