@@ -896,9 +896,61 @@ app.whenReady().then(async () => {
 
     if (isDev) {
       port = 3000;
-      console.log(`Dev mode: connecting to http://127.0.0.1:${port}`);
+      console.log(`Dev mode: starting next dev via utilityProcess on port ${port}`);
       serverPort = port;
-      createWindow(`http://127.0.0.1:${port}`);
+
+      const home = os.homedir();
+      const constructedPath = getExpandedShellPath();
+      const nextBin = path.join(process.cwd(), 'node_modules', 'next', 'dist', 'bin', 'next');
+
+      const devEnv: Record<string, string> = {
+        ...(process.env as Record<string, string>),
+        PORT: String(port),
+        HOSTNAME: '127.0.0.1',
+        CLAUDE_GUI_DATA_DIR: path.join(home, '.codepilot'),
+        HOME: home,
+        USERPROFILE: home,
+        PATH: constructedPath,
+        NODE_ENV: 'development',
+      };
+
+      serverErrors = [];
+      serverExited = false;
+      serverExitCode = null;
+
+      serverProcess = utilityProcess.fork(nextBin, ['dev'], {
+        env: devEnv,
+        cwd: process.cwd(),
+        stdio: 'pipe',
+        serviceName: 'codepilot-next-dev',
+      });
+
+      serverProcess.stdout?.on('data', (data: Buffer) => {
+        const msg = data.toString().trim();
+        console.log(`[next-dev] ${msg}`);
+        serverErrors.push(msg);
+      });
+
+      serverProcess.stderr?.on('data', (data: Buffer) => {
+        const msg = data.toString().trim();
+        console.error(`[next-dev:err] ${msg}`);
+        serverErrors.push(msg);
+      });
+
+      serverProcess.on('exit', (code) => {
+        console.log(`next dev exited with code ${code}`);
+        serverExited = true;
+        serverExitCode = code;
+        serverProcess = null;
+      });
+
+      // Show loading window immediately, navigate once Next is ready
+      createWindow();
+      await waitForServer(port, 60000);
+      console.log('next dev is ready');
+      if (mainWindow) {
+        mainWindow.loadURL(`http://127.0.0.1:${port}`);
+      }
     } else {
       port = await getPort();
       console.log(`Starting server on port ${port}...`);
