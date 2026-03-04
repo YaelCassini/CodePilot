@@ -126,7 +126,7 @@ CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 
 ```bash
 # 确认项目级 git 身份（每次提交前校验）
-git config user.name "yaelcassini"
+git config user.name "YaelCassini"
 git config user.email "3247365200@qq.com"
 
 # 精确 add 改动文件，不使用 git add -A 或 git add .
