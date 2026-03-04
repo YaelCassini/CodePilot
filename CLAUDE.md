@@ -144,3 +144,81 @@ git push originself main
 
 **禁止在用户未确认验证通过前执行提交。**
 **禁止在 commit message 中添加 Co-Authored-By 行。**
+
+## 上游同步工作流
+
+**触发条件：** 用户说「上游有更新」「同步上游」「upstream 有新版本」等语句时，严格按以下步骤执行，不得跳步。
+
+> 本地 remote 约定：
+> - `origin` → https://github.com/op7418/CodePilot.git（上游原始仓库）
+> - `originself` → https://github.com/YaelCassini/CodePilot.git（个人 fork）
+
+### Step 1：拉取上游变更
+
+```bash
+git fetch origin
+```
+
+执行后输出 fetch 结果，告知用户上游有哪些新提交（`git log HEAD..origin/main --oneline`）。
+
+### Step 2：合并上游到本地 main
+
+```bash
+git merge origin/main
+```
+
+**无冲突时**：直接进入 Step 3。若产生 merge commit，message 使用：
+```
+chore: sync upstream v{上游最新版本号}
+```
+
+**有冲突时**，按以下规则处理：
+
+- **普通代码文件冲突**（src/、electron/、components/ 等）：
+  优先采用上游版本，自动执行：
+  ```bash
+  git checkout --theirs <冲突文件>
+  git add <冲突文件>
+  ```
+  处理完所有文件后继续 merge commit。
+
+- **CLAUDE.md 冲突**（用户自定义工作流文件，不可静默覆盖）：
+  必须暂停，向用户展示冲突差异，等待用户明确决定后再处理。
+
+- **其他配置文件冲突**（package.json、electron-builder.yml 等）：
+  向用户展示差异，说明两方改动内容，等待用户决定保留哪一方。
+
+若遇到无法自动处理的复杂冲突，输出冲突文件列表，告知用户需要手动介入，暂停工作流。
+
+### Step 3：推送到个人 fork 仓库
+
+```bash
+git push originself main
+```
+
+### Step 4：验证同步结果
+
+```bash
+git log --oneline -5
+```
+
+输出最近 5 条提交，确认合并结果正确。
+
+### Step 5：告知用户并提示打包
+
+同步完成后，输出以下提示：
+
+```
+✅ 上游同步完成。
+
+本地已同步至 origin/main 最新版本，并已推送到 originself（YaelCassini/CodePilot）。
+
+如需编译 Windows 安装包，请执行：
+  rm -rf release/ .next/
+  npm run electron:pack:win
+
+安装包将输出到 release/ 目录。
+```
+
+**禁止在同步工作流中执行任何额外的 git add / commit，只推送 merge 结果。**
+**禁止在用户未触发「上游同步」指令前自动执行此工作流。**
