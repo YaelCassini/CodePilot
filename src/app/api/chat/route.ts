@@ -202,6 +202,8 @@ export async function POST(request: NextRequest) {
       toolTimeoutSeconds: toolTimeout || 300,
       provider: resolvedProvider,
       conversationHistory: historyMsgs,
+      allowedTools: (() => { try { const t = JSON.parse(session.allowed_tools || '[]'); return Array.isArray(t) && t.length > 0 ? t : undefined; } catch { return undefined; } })(),
+      disallowedTools: (() => { try { const t = JSON.parse(session.disallowed_tools || '[]'); return Array.isArray(t) && t.length > 0 ? t : undefined; } catch { return undefined; } })(),
       onRuntimeStatusChange: (status: string) => {
         try { setSessionRuntimeStatus(session_id, status); } catch { /* best effort */ }
       },

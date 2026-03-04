@@ -21,6 +21,8 @@ export interface ChatSession {
   runtime_status: string;
   runtime_updated_at: string;
   runtime_error: string;
+  allowed_tools: string;    // JSON array string, e.g. '["Bash","Read"]'
+  disallowed_tools: string; // JSON array string, e.g. '["Write","Edit"]'
 }
 
 // ==========================================
@@ -678,4 +680,6 @@ export interface ClaudeStreamOptions {
   /** Recent conversation history from DB — used as fallback context when SDK resume is unavailable or fails */
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   onRuntimeStatusChange?: (status: string) => void;
+  allowedTools?: string[];
+  disallowedTools?: string[];
 }

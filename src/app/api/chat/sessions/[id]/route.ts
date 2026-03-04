@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { deleteSession, getSession, updateSessionWorkingDirectory, updateSessionTitle, updateSessionMode, updateSessionModel, updateSessionProviderId, clearSessionMessages } from '@/lib/db';
+import { deleteSession, getSession, updateSessionWorkingDirectory, updateSessionTitle, updateSessionMode, updateSessionModel, updateSessionProviderId, clearSessionMessages, updateSessionAllowedTools, updateSessionDisallowedTools } from '@/lib/db';
 
 export async function GET(
   _request: NextRequest,
@@ -48,6 +48,12 @@ export async function PATCH(
     }
     if (body.clear_messages) {
       clearSessionMessages(id);
+    }
+    if (Array.isArray(body.allowed_tools)) {
+      updateSessionAllowedTools(id, body.allowed_tools);
+    }
+    if (Array.isArray(body.disallowed_tools)) {
+      updateSessionDisallowedTools(id, body.disallowed_tools);
     }
 
     const updated = getSession(id);

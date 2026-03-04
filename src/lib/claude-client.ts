@@ -281,6 +281,8 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
     conversationHistory,
     onRuntimeStatusChange,
     imageAgentMode,
+    allowedTools,
+    disallowedTools,
   } = options;
 
   return new ReadableStream<string>({
@@ -387,6 +389,13 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
 
         if (skipPermissions) {
           queryOptions.allowDangerouslySkipPermissions = true;
+        }
+
+        if (allowedTools && allowedTools.length > 0) {
+          queryOptions.allowedTools = allowedTools;
+        }
+        if (disallowedTools && disallowedTools.length > 0) {
+          queryOptions.disallowedTools = disallowedTools;
         }
 
         // Find claude binary for packaged app where PATH is limited.

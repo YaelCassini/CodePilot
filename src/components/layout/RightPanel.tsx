@@ -13,6 +13,7 @@ import { usePanel } from "@/hooks/usePanel";
 import { useTranslation } from "@/hooks/useTranslation";
 import { FileTree } from "@/components/project/FileTree";
 import { TaskList } from "@/components/project/TaskList";
+import { PermissionsPanel } from "@/components/project/PermissionsPanel";
 
 interface RightPanelProps {
   width?: number;
@@ -50,7 +51,7 @@ export function RightPanel({ width }: RightPanelProps) {
 
   if (!panelOpen) {
     return (
-      <div className="flex flex-col items-center gap-2 bg-background p-2">
+      <div className="flex flex-col items-center gap-2 bg-background p-2 mt-5">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -112,6 +113,19 @@ export function RightPanel({ width }: RightPanelProps) {
             onFileSelect={handleFileSelect}
             onFileAdd={handleFileAdd}
           />
+        </div>
+
+        {/* Divider */}
+        <div className="mx-4 mt-2 mb-2 border-t border-border/40 shrink-0" />
+
+        {/* Permissions */}
+        <div className="shrink-0 px-3 pb-3 overflow-y-auto">
+          <div className="px-0.5 pt-1 pb-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Permissions
+            </span>
+          </div>
+          <PermissionsPanel sessionId={sessionId} />
         </div>
       </div>
     </aside>
