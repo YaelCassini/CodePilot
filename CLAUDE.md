@@ -38,3 +38,103 @@ CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 - `docs/research/` — 调研文档（技术方案、可行性分析）
 
 **检索前先读对应目录的 README.md；增删文件后更新索引。**
+
+## 迭代工作流
+
+每次收到用户的问题或需求时，必须严格遵守以下流程，不得跳步。
+
+### Step 1：需求澄清（Plan 模式）
+
+进入 plan 模式，通过结构化问题确认以下内容后才能继续：
+- 问题/需求的具体触发场景
+- 预期行为 vs 当前行为（bug 类）或期望效果（需求类）
+- 涉及范围（哪些页面/功能/平台）
+- 边界情况和例外
+
+**禁止在需求未确认前开始写代码或输出 Plan。**
+
+### Step 2：输出 Plan 并等待审核
+
+需求确认后，输出结构化 Plan，格式如下：
+
+```
+## Plan: [简短标题]
+
+### 问题/需求描述
+[一句话总结]
+
+### 涉及文件
+- path/to/file.ts（第 N-M 行）— 改动说明
+- ...
+
+### 改动方案
+[分点说明改什么、为什么这样改]
+
+### 风险点
+[可能的副作用或需要注意的地方]
+
+### Agent 分工
+- Frontend Agent: [负责哪些文件]
+- Backend Agent: [负责哪些文件]
+（如改动集中在单一模块，只派一个 Agent）
+```
+
+**等待用户明确说"开始"或"approve"后，才能派发 Code Agent 执行。**
+
+### Step 3：代码修改（Code Agent 并行）
+
+- 使用 Task 工具派发子 Agent
+- 前端（components/、app/、hooks/）与后端（api/、lib/、electron/、db.ts）改动互相独立时，同时派发两个 Agent 并行执行
+- 改动集中在单一模块时，派一个 Agent 即可
+- 较大改动（跨 3 个以上文件）使用 `isolation: "worktree"` 隔离，避免污染工作目录
+- 所有子 Agent 完成后，汇总改动内容告知用户
+
+### Step 4：验证指引
+
+代码修改完成后，必须输出完整的双阶段验证指引：
+
+**阶段一：开发模式快速验证**
+```
+启动命令：npm run electron:dev
+验证步骤：
+1. [具体操作步骤]
+2. [预期看到的现象]
+3. [回归检查点：核心功能是否正常]
+```
+
+**阶段二：打包验证（每次必须执行）**
+```
+打包命令：
+  rm -rf release/ .next/
+  npm run electron:pack:win
+
+验证步骤：
+1. 安装 release/ 目录下产出的 .exe 安装包
+2. [改动功能的验证步骤]
+3. 回归检查点：
+   - [ ] 新建 session 是否正常
+   - [ ] 发送消息 / 流式输出是否正常
+   - [ ] [本次改动相关的功能点]
+4. 卸载安装包
+```
+
+**两个阶段都验证通过后，告知用户可以提交。**
+
+### Step 5：提交（用户确认后执行）
+
+用户明确说"验证通过，提交"或"没问题，提交"后，执行：
+
+```bash
+# 精确 add 改动文件，不使用 git add -A 或 git add .
+git add path/to/changed/file1 path/to/changed/file2
+
+# 遵循 Commit 信息规范（conventional commits + body 说明）
+git commit -m "..."
+
+# 推送到 originself
+git push originself main
+```
+
+提交完成后，输出 commit hash 和 push 结果。
+
+**禁止在用户未确认验证通过前执行提交。**

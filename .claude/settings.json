@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push originself *)",
+      "Bash(git diff *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git remote *)",
+      "Bash(git branch *)",
+      "Bash(node scripts/build-electron.mjs)",
+      "Bash(npm run lint)"
+    ]
+  }
+}
