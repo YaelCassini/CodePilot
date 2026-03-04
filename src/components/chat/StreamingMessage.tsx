@@ -282,39 +282,49 @@ function ExitPlanModeUI({
     tool: string;
     prompt: string;
   }>;
+  const planContent = typeof toolInput.plan === 'string' && toolInput.plan.trim()
+    ? toolInput.plan.trim()
+    : null;
 
   return (
-    <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
-      <div className="flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        <span className="text-sm font-medium">Plan complete — ready to execute</span>
-      </div>
-      {allowedPrompts.length > 0 && (
-        <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">Requested permissions:</p>
-          <ul className="space-y-0.5">
-            {allowedPrompts.map((p, i) => (
-              <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">{p.tool}</span>
-                <span>{p.prompt}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+    <div className="space-y-3">
+      {/* Plan content — rendered above the approval box */}
+      {planContent && (
+        <MessageResponse>{planContent}</MessageResponse>
       )}
-      <div className="flex gap-2">
-        <button
-          onClick={onDeny}
-          className="rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:bg-muted"
-        >
-          Reject
-        </button>
-        <button
-          onClick={onApprove}
-          className="rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-        >
-          Approve & Execute
-        </button>
+      {/* Approval box */}
+      <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
+        <div className="flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <span className="text-sm font-medium">Plan complete — ready to execute</span>
+        </div>
+        {allowedPrompts.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Requested permissions:</p>
+            <ul className="space-y-0.5">
+              {allowedPrompts.map((p, i) => (
+                <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">{p.tool}</span>
+                  <span>{p.prompt}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <button
+            onClick={onDeny}
+            className="rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:bg-muted"
+          >
+            Reject
+          </button>
+          <button
+            onClick={onApprove}
+            className="rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Approve & Execute
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -439,21 +449,6 @@ export function StreamingMessage({
           />
         )}
 
-        {/* Permission approval — ExitPlanMode gets a dedicated UI */}
-        {pendingPermission?.toolName === 'ExitPlanMode' && !permissionResolved && (
-          <ExitPlanModeUI
-            toolInput={pendingPermission.toolInput as Record<string, unknown>}
-            onApprove={() => onPermissionResponse?.('allow')}
-            onDeny={() => onPermissionResponse?.('deny')}
-          />
-        )}
-        {pendingPermission?.toolName === 'ExitPlanMode' && permissionResolved === 'allow' && (
-          <p className="py-1 text-xs text-green-600 dark:text-green-400">Plan approved — executing</p>
-        )}
-        {pendingPermission?.toolName === 'ExitPlanMode' && permissionResolved === 'deny' && (
-          <p className="py-1 text-xs text-red-600 dark:text-red-400">Plan rejected</p>
-        )}
-
         {/* Permission approval — generic confirmation for other tools */}
         {(pendingPermission || permissionResolved) && pendingPermission?.toolName !== 'AskUserQuestion' && pendingPermission?.toolName !== 'ExitPlanMode' && (
           <Confirmation
@@ -564,6 +559,21 @@ export function StreamingMessage({
             .trim();
           return stripped ? <MessageResponse>{stripped}</MessageResponse> : null;
         })()}
+
+        {/* Permission approval — ExitPlanMode gets a dedicated UI, shown AFTER plan text */}
+        {pendingPermission?.toolName === 'ExitPlanMode' && !permissionResolved && (
+          <ExitPlanModeUI
+            toolInput={pendingPermission.toolInput as Record<string, unknown>}
+            onApprove={() => onPermissionResponse?.('allow')}
+            onDeny={() => onPermissionResponse?.('deny')}
+          />
+        )}
+        {pendingPermission?.toolName === 'ExitPlanMode' && permissionResolved === 'allow' && (
+          <p className="py-1 text-xs text-green-600 dark:text-green-400">Plan approved — executing</p>
+        )}
+        {pendingPermission?.toolName === 'ExitPlanMode' && permissionResolved === 'deny' && (
+          <p className="py-1 text-xs text-red-600 dark:text-red-400">Plan rejected</p>
+        )}
 
         {/* Permission approval — AskUserQuestion rendered after text so it stays in view */}
         {pendingPermission?.toolName === 'AskUserQuestion' && !permissionResolved && (
