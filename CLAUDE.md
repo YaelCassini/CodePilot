@@ -125,10 +125,15 @@ CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 用户明确说"验证通过，提交"或"没问题，提交"后，执行：
 
 ```bash
+# 确认项目级 git 身份（每次提交前校验）
+git config user.name "yaelcassini"
+git config user.email "3247365200@qq.com"
+
 # 精确 add 改动文件，不使用 git add -A 或 git add .
 git add path/to/changed/file1 path/to/changed/file2
 
 # 遵循 Commit 信息规范（conventional commits + body 说明）
+# 不加 Co-Authored-By，commit 作者统一为 yaelcassini
 git commit -m "..."
 
 # 推送到 originself
@@ -138,3 +143,4 @@ git push originself main
 提交完成后，输出 commit hash 和 push 结果。
 
 **禁止在用户未确认验证通过前执行提交。**
+**禁止在 commit message 中添加 Co-Authored-By 行。**
