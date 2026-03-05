@@ -45,6 +45,13 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     setCurrentProviderId(providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
   }, [providerId]);
 
+  // Persist working directory so the standalone MCP manager page can read it
+  useEffect(() => {
+    if (workingDirectory) {
+      localStorage.setItem('last_working_directory', workingDirectory);
+    }
+  }, [workingDirectory]);
+
   // Stream snapshot from the manager — drives all streaming UI
   const [streamSnapshot, setStreamSnapshot] = useState<SessionStreamSnapshot | null>(
     () => getSnapshot(sessionId)
@@ -59,6 +66,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const statusText = streamSnapshot?.statusText;
   const pendingPermission = streamSnapshot?.pendingPermission ?? null;
   const permissionResolved = streamSnapshot?.permissionResolved ?? null;
+  const activeAgents = streamSnapshot?.activeAgents ?? [];
 
   // Pending image generation notices — flushed into the next user message so the LLM knows about generated images
   const pendingImageNoticesRef = useRef<string[]>([]);
@@ -401,6 +409,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         hasMore={hasMore}
         loadingMore={loadingMore}
         onLoadMore={loadEarlierMessages}
+        activeAgents={activeAgents}
+        streamStartedAt={streamSnapshot?.startedAt}
       />
       {/* Batch image generation panels — shown above the input area */}
       <BatchExecutionDashboard />

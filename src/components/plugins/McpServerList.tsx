@@ -4,15 +4,15 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { IconSvgElement } from "@hugeicons/react";
 import { Delete02Icon, PencilIcon, ServerStack01Icon, Wifi01Icon, GlobeIcon } from "@hugeicons/core-free-icons";
 import { useTranslation } from '@/hooks/useTranslation';
 import type { MCPServer } from '@/types';
 
 interface McpServerListProps {
   servers: Record<string, MCPServer>;
-  onEdit: (name: string, server: MCPServer) => void;
-  onDelete: (name: string) => void;
+  readOnly?: boolean;
+  onEdit?: (name: string, server: MCPServer) => void;
+  onDelete?: (name: string) => void;
 }
 
 function getServerTypeInfo(server: MCPServer) {
@@ -27,7 +27,7 @@ function getServerTypeInfo(server: MCPServer) {
   }
 }
 
-export function McpServerList({ servers, onEdit, onDelete }: McpServerListProps) {
+export function McpServerList({ servers, readOnly = false, onEdit, onDelete }: McpServerListProps) {
   const { t } = useTranslation();
   const entries = Object.entries(servers);
 
@@ -68,22 +68,26 @@ export function McpServerList({ servers, onEdit, onDelete }: McpServerListProps)
                 </CardDescription>
               </div>
               <div className="flex gap-1 shrink-0">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => onEdit(name, server)}
-                >
-                  <HugeiconsIcon icon={PencilIcon} className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-destructive hover:text-destructive"
-                  onClick={() => onDelete(name)}
-                >
-                  <HugeiconsIcon icon={Delete02Icon} className="h-3.5 w-3.5" />
-                </Button>
+                {!readOnly && onEdit && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => onEdit(name, server)}
+                  >
+                    <HugeiconsIcon icon={PencilIcon} className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {!readOnly && onDelete && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-destructive hover:text-destructive"
+                    onClick={() => onDelete(name)}
+                  >
+                    <HugeiconsIcon icon={Delete02Icon} className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
             </CardHeader>
             {(server.env && Object.keys(server.env).length > 0) ||
