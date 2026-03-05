@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { StructureFolderIcon, PanelRightCloseIcon } from "@hugeicons/core-free-icons";
+import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -22,6 +23,7 @@ interface RightPanelProps {
 export function RightPanel({ width }: RightPanelProps) {
   const { panelOpen, setPanelOpen, workingDirectory, sessionId, previewFile, setPreviewFile } = usePanel();
   const { t } = useTranslation();
+  const [permissionsOpen, setPermissionsOpen] = useState(true);
 
   const handleFileAdd = useCallback((path: string) => {
     window.dispatchEvent(new CustomEvent('attach-file-to-chat', { detail: { path } }));
@@ -116,16 +118,26 @@ export function RightPanel({ width }: RightPanelProps) {
         </div>
 
         {/* Divider */}
-        <div className="mx-4 mt-2 mb-2 border-t border-border/40 shrink-0" />
+        <div className="mx-4 mt-2 mb-0 border-t border-border/40 shrink-0" />
 
-        {/* Permissions */}
-        <div className="shrink-0 px-3 pb-3 overflow-y-auto">
-          <div className="px-0.5 pt-1 pb-1.5">
+        {/* Permissions — collapsible section */}
+        <div className="shrink-0 px-3 overflow-y-auto">
+          <button
+            onClick={() => setPermissionsOpen(v => !v)}
+            className="w-full flex items-center justify-between px-0.5 py-1.5 group"
+          >
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Permissions
             </span>
-          </div>
-          <PermissionsPanel sessionId={sessionId} />
+            <ChevronDown
+              className={`h-3 w-3 text-muted-foreground transition-transform ${permissionsOpen ? '' : '-rotate-90'}`}
+            />
+          </button>
+          {permissionsOpen && (
+            <div className="pb-3">
+              <PermissionsPanel sessionId={sessionId} />
+            </div>
+          )}
         </div>
       </div>
     </aside>

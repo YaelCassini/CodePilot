@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import {
   Message as AIMessage,
@@ -22,6 +22,7 @@ import { ImageGenConfirmation } from './ImageGenConfirmation';
 import { BatchPlanInlinePreview } from './batch-image-gen/BatchPlanInlinePreview';
 import { PENDING_KEY, buildReferenceImages } from '@/lib/image-ref-store';
 import type { ToolUIPart } from 'ai';
+import type { AgentInfo } from '@/types';
 import type { PermissionRequestEvent, PlannerOutput } from '@/types';
 
 interface ImageGenRequest {
@@ -117,19 +118,24 @@ interface StreamingMessageProps {
   onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>) => void;
   permissionResolved?: 'allow' | 'deny' | null;
   onForceStop?: () => void;
+  streamStartedAt?: number;
+  activeAgents?: AgentInfo[];
 }
 
-function ElapsedTimer() {
-  const [elapsed, setElapsed] = useState(0);
-  const startRef = useRef(0);
+function ElapsedTimer({ startTime }: { startTime?: number }) {
+  const [elapsed, setElapsed] = useState(() =>
+    startTime ? Math.floor((Date.now() - startTime) / 1000) : 0
+  );
 
   useEffect(() => {
-    startRef.current = Date.now();
+    const origin = startTime || Date.now();
+    // Sync immediately in case the component was remounted mid-stream
+    setElapsed(Math.floor((Date.now() - origin) / 1000));
     const interval = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
+      setElapsed(Math.floor((Date.now() - origin) / 1000));
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [startTime]);
 
   const mins = Math.floor(elapsed / 60);
   const secs = elapsed % 60;
@@ -330,7 +336,7 @@ function ExitPlanModeUI({
   );
 }
 
-function StreamingStatusBar({ statusText, onForceStop }: { statusText?: string; onForceStop?: () => void }) {
+function StreamingStatusBar({ statusText, onForceStop, streamStartedAt }: { statusText?: string; onForceStop?: () => void; streamStartedAt?: number }) {
   const displayText = statusText || 'Thinking';
 
   // Parse elapsed seconds from statusText like "Running bash... (45s)"
@@ -353,7 +359,7 @@ function StreamingStatusBar({ statusText, onForceStop }: { statusText?: string; 
         )}
       </div>
       <span className="text-muted-foreground/50">|</span>
-      <ElapsedTimer />
+      <ElapsedTimer startTime={streamStartedAt} />
       {isCritical && onForceStop && (
         <button
           type="button"
@@ -378,6 +384,8 @@ export function StreamingMessage({
   onPermissionResponse,
   permissionResolved,
   onForceStop,
+  streamStartedAt,
+  activeAgents,
 }: StreamingMessageProps) {
   const { t } = useTranslation();
   const runningTools = toolUses.filter(
@@ -484,7 +492,7 @@ export function StreamingMessage({
                 >
                   Allow Once
                 </ConfirmationAction>
-                {pendingPermission?.suggestions && pendingPermission.suggestions.length > 0 && (
+                {pendingPermission && (
                   <ConfirmationAction
                     variant="default"
                     onClick={() => onPermissionResponse?.('allow_session')}
@@ -593,12 +601,50 @@ export function StreamingMessage({
           </div>
         )}
 
+        {/* Agent Team panel — shows active/recently completed sub-agents */}
+        {activeAgents && activeAgents.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-0.5">
+              Agent Team
+            </p>
+            {activeAgents.map((agent) => (
+              <div
+                key={agent.agentId}
+                className="flex items-center gap-2 rounded-md bg-muted/40 px-2.5 py-1.5 text-xs"
+              >
+                {/* Status dot */}
+                <span
+                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${agent.status === 'running' ? 'bg-blue-500 animate-pulse' : agent.status === 'failed' ? 'bg-red-500' : 'bg-green-500'}`}
+                />
+                {/* Agent type / description */}
+                <span className="flex-1 truncate text-foreground/80">{agent.agentType}</span>
+                {/* Stats when done */}
+                {agent.status !== 'running' && agent.totalTokens && (
+                  <span className="shrink-0 text-muted-foreground">
+                    {agent.totalTokens.toLocaleString()} tokens
+                  </span>
+                )}
+                {/* Duration */}
+                {agent.durationMs && (
+                  <span className="shrink-0 text-muted-foreground">
+                    {(agent.durationMs / 1000).toFixed(1)}s
+                  </span>
+                )}
+                {/* Running indicator */}
+                {agent.status === 'running' && (
+                  <span className="shrink-0 text-blue-500">running…</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Status bar during streaming — show permission wait status when awaiting authorization */}
         {isStreaming && <StreamingStatusBar statusText={
           pendingPermission && !permissionResolved
             ? `Waiting for authorization: ${pendingPermission.toolName}`
             : statusText || getRunningCommandSummary()
-        } onForceStop={onForceStop} />}
+        } onForceStop={onForceStop} streamStartedAt={streamStartedAt} />}
       </MessageContent>
     </AIMessage>
   );
