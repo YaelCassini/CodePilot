@@ -3,7 +3,7 @@
 import { useRef, useEffect } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import type { Message, PermissionRequestEvent } from '@/types';
+import type { Message, PermissionRequestEvent, AgentInfo } from '@/types';
 import {
   Conversation,
   ConversationContent,
@@ -62,12 +62,14 @@ interface MessageListProps {
   streamingToolOutput?: string;
   statusText?: string;
   pendingPermission?: PermissionRequestEvent | null;
-  onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny') => void;
+  onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string, updatedPermissions?: Array<Record<string, unknown>>) => void;
   permissionResolved?: 'allow' | 'deny' | null;
   onForceStop?: () => void;
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
+  activeAgents?: AgentInfo[];
+  streamStartedAt?: number;
 }
 
 export function MessageList({
@@ -85,6 +87,8 @@ export function MessageList({
   hasMore,
   loadingMore,
   onLoadMore,
+  activeAgents = [],
+  streamStartedAt,
 }: MessageListProps) {
   const { t } = useTranslation();
   // Scroll anchor: preserve position when older messages are prepended
@@ -156,6 +160,8 @@ export function MessageList({
             onPermissionResponse={onPermissionResponse}
             permissionResolved={permissionResolved}
             onForceStop={onForceStop}
+            activeAgents={activeAgents}
+            streamStartedAt={streamStartedAt}
           />
         )}
       </ConversationContent>

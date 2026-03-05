@@ -15,8 +15,8 @@ export async function POST(request: NextRequest) {
   let activeLockId: string | undefined;
 
   try {
-    const body: SendMessageRequest & { files?: FileAttachment[]; toolTimeout?: number; provider_id?: string; systemPromptAppend?: string; sessionAllowedTools?: string[] } = await request.json();
-    const { session_id, content, model, mode, files, toolTimeout, provider_id, systemPromptAppend, sessionAllowedTools } = body;
+    const body: SendMessageRequest & { files?: FileAttachment[]; toolTimeout?: number; provider_id?: string; systemPromptAppend?: string } = await request.json();
+    const { session_id, content, model, mode, files, toolTimeout, provider_id, systemPromptAppend } = body;
 
     console.log('[chat API] content length:', content.length, 'first 200 chars:', content.slice(0, 200));
     console.log('[chat API] systemPromptAppend:', systemPromptAppend ? `${systemPromptAppend.length} chars` : 'none');
@@ -202,18 +202,8 @@ export async function POST(request: NextRequest) {
       toolTimeoutSeconds: toolTimeout || 300,
       provider: resolvedProvider,
       conversationHistory: historyMsgs,
-      allowedTools: (() => {
-        try {
-          const dbTools: string[] = (() => {
-            const t = JSON.parse(session.allowed_tools || '[]');
-            return Array.isArray(t) ? t : [];
-          })();
-          const sessionTools = Array.isArray(sessionAllowedTools) ? sessionAllowedTools : [];
-          const merged = [...new Set([...dbTools, ...sessionTools])];
-          return merged.length > 0 ? merged : undefined;
-        } catch { return undefined; }
-      })(),
-      disallowedTools: (() => { try { const t = JSON.parse(session.disallowed_tools || '[]'); return Array.isArray(t) && t.length > 0 ? t : undefined; } catch { return undefined; } })(),
+      // Tool permissions are managed by claude-internal via settings.local.json.
+      // SDK loads them automatically through settingSources. No GUI-side merging needed.
       onRuntimeStatusChange: (status: string) => {
         try { setSessionRuntimeStatus(session_id, status); } catch { /* best effort */ }
       },
