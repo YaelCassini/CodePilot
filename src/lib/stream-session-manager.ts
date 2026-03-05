@@ -21,6 +21,8 @@ import type {
   TokenUsage,
   PermissionRequestEvent,
   FileAttachment,
+  AgentInfo,
+  AgentStatus,
 } from '@/types';
 
 // ==========================================
@@ -43,6 +45,8 @@ interface ActiveStream {
   toolTimeoutInfo: { toolName: string; elapsedSeconds: number } | null;
   isIdleTimeout: boolean;
   sendMessageFn: ((content: string, files?: FileAttachment[]) => void) | null;
+  activeAgentsMap: Map<string, AgentInfo>;
+  sessionGrantedTools: string[];  // tools allowed once this run (display only, resets on restart)
 }
 
 export interface StartStreamParams {
@@ -95,6 +99,8 @@ function buildSnapshot(stream: ActiveStream): SessionStreamSnapshot {
     completedAt: stream.snapshot.completedAt,
     error: stream.snapshot.error,
     finalMessageContent: stream.snapshot.finalMessageContent,
+    sessionGrantedTools: [...stream.sessionGrantedTools],
+    activeAgents: [...stream.activeAgentsMap.values()],
   };
 }
 
@@ -163,6 +169,8 @@ export function startStream(params: StartStreamParams): void {
       completedAt: null,
       error: null,
       finalMessageContent: null,
+      sessionGrantedTools: [],
+      activeAgents: [],
     },
     listeners: existing?.listeners ?? new Set(),
     idleCheckTimer: null,
@@ -175,6 +183,8 @@ export function startStream(params: StartStreamParams): void {
     toolTimeoutInfo: null,
     isIdleTimeout: false,
     sendMessageFn: params.sendMessageFn ?? null,
+    activeAgentsMap: new Map(),
+    sessionGrantedTools: existing?.sessionGrantedTools ?? [],
   };
 
   map.set(params.sessionId, stream);
@@ -310,6 +320,32 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
       onTaskUpdate: () => {
         markActive();
         window.dispatchEvent(new CustomEvent('tasks-updated'));
+      },
+      onAgentStart: (agentId, agentType, description) => {
+        markActive();
+        stream.activeAgentsMap.set(agentId, {
+          agentId,
+          agentType: agentType || description || 'agent',
+          startedAt: Date.now(),
+          status: 'running',
+        });
+        emit(stream, 'snapshot-updated');
+      },
+      onAgentStop: (agentId, status, summary, usage) => {
+        markActive();
+        const existing = stream.activeAgentsMap.get(agentId);
+        if (existing) {
+          stream.activeAgentsMap.set(agentId, {
+            ...existing,
+            stoppedAt: Date.now(),
+            status: (status as AgentStatus) || 'completed',
+            summary,
+            totalTokens: usage?.totalTokens,
+            toolUses: usage?.toolUses,
+            durationMs: usage?.durationMs,
+          });
+        }
+        emit(stream, 'snapshot-updated');
       },
       onError: (acc) => {
         markActive();
@@ -507,6 +543,8 @@ export function subscribe(sessionId: string, listener: StreamEventListener): () 
         completedAt: null,
         error: null,
         finalMessageContent: null,
+        sessionGrantedTools: [],
+        activeAgents: [],
       },
       listeners: new Set(),
       idleCheckTimer: null,
@@ -519,6 +557,8 @@ export function subscribe(sessionId: string, listener: StreamEventListener): () 
       toolTimeoutInfo: null,
       isIdleTimeout: false,
       sendMessageFn: null,
+      activeAgentsMap: new Map(),
+      sessionGrantedTools: [],
     };
     map.set(sessionId, stream);
   }
@@ -565,21 +605,38 @@ export async function respondToPermission(
   sessionId: string,
   decision: 'allow' | 'allow_session' | 'deny',
   updatedInput?: Record<string, unknown>,
+  denyMessage?: string,
+  updatedPermissions?: Array<Record<string, unknown>>,
 ): Promise<void> {
   const stream = getStreamsMap().get(sessionId);
   if (!stream || !stream.snapshot.pendingPermission) return;
 
   const perm = stream.snapshot.pendingPermission;
 
+  // "Always allow for this project" (allow_session) — pass updatedPermissions to SDK.
+  // The SDK writes the rules into {cwd}/.claude/settings.local.json (permissions.allow[]),
+  // making them persistent across sessions. GUI does not maintain its own list.
+
+  // "Allow Once" (allow) — record toolName for display in the permissions panel
+  // (shows what was allowed in this run; resets on process restart).
+  if (decision === 'allow' && perm.toolName) {
+    if (!stream.sessionGrantedTools.includes(perm.toolName)) {
+      stream.sessionGrantedTools = [...stream.sessionGrantedTools, perm.toolName];
+    }
+  }
+
+  // Merge explicit updatedPermissions with session-level suggestions when allow_session
+  const resolvedPermissions =
+    updatedPermissions ??
+    (decision === 'allow_session' && perm.suggestions ? perm.suggestions : undefined);
+
   const body = {
     permissionRequestId: perm.permissionRequestId,
     decision: decision === 'deny'
-      ? { behavior: 'deny' as const, message: 'User denied permission' }
+      ? { behavior: 'deny' as const, message: denyMessage || 'User denied permission' }
       : {
           behavior: 'allow' as const,
-          ...(decision === 'allow_session' && perm.suggestions
-            ? { updatedPermissions: perm.suggestions }
-            : {}),
+          ...(resolvedPermissions ? { updatedPermissions: resolvedPermissions } : {}),
           ...(updatedInput ? { updatedInput } : {}),
         },
   };
@@ -588,6 +645,7 @@ export async function respondToPermission(
   stream.snapshot = {
     ...stream.snapshot,
     permissionResolved: decision === 'deny' ? 'deny' : 'allow',
+    sessionGrantedTools: [...stream.sessionGrantedTools],
   };
   emit(stream, 'snapshot-updated');
 

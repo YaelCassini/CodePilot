@@ -358,6 +358,8 @@ export type SSEEventType =
   | 'permission_request' // permission approval needed
   | 'mode_changed'       // SDK permission mode changed (e.g. plan → code)
   | 'task_update'        // SDK TodoWrite task sync
+  | 'agent_start'        // sub-agent started
+  | 'agent_stop'         // sub-agent stopped
   | 'done';              // stream complete
 
 export interface SSEEvent {
@@ -651,6 +653,8 @@ export interface SessionStreamSnapshot {
   startedAt: number;
   completedAt: number | null;
   error: string | null;
+  sessionGrantedTools: string[];
+  activeAgents: AgentInfo[];
   /** Final message content built at stream completion for ChatView to consume */
   finalMessageContent: string | null;
 }
@@ -682,4 +686,22 @@ export interface ClaudeStreamOptions {
   onRuntimeStatusChange?: (status: string) => void;
   allowedTools?: string[];
   disallowedTools?: string[];
+}
+
+// ==========================================
+// Agent Team Types
+// ==========================================
+
+export type AgentStatus = 'running' | 'completed' | 'failed' | 'stopped';
+
+export interface AgentInfo {
+  agentId: string;
+  agentType: string;
+  startedAt: number;
+  stoppedAt?: number;
+  status: AgentStatus;
+  summary?: string;
+  totalTokens?: number;
+  toolUses?: number;
+  durationMs?: number;
 }

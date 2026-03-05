@@ -14,6 +14,10 @@ import type {
   McpServerConfig,
   NotificationHookInput,
   PostToolUseHookInput,
+  SubagentStartHookInput,
+  SubagentStopHookInput,
+  SDKTaskStartedMessage,
+  SDKTaskNotificationMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, PermissionRequestEvent, FileAttachment, ApiProvider } from '@/types';
 import { isImageFile } from '@/types';
@@ -585,6 +589,34 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
               return {};
             }],
           }],
+          SubagentStart: [{
+            hooks: [async (input) => {
+              const agentEvent = input as SubagentStartHookInput;
+              controller.enqueue(formatSSE({
+                type: 'agent_start',
+                data: JSON.stringify({
+                  agentId: agentEvent.agent_id,
+                  agentType: agentEvent.agent_type,
+                }),
+              }));
+              return {};
+            }],
+          }],
+          SubagentStop: [{
+            hooks: [async (input) => {
+              const agentEvent = input as SubagentStopHookInput;
+              controller.enqueue(formatSSE({
+                type: 'agent_stop',
+                data: JSON.stringify({
+                  agentId: agentEvent.agent_id,
+                  agentType: agentEvent.agent_type,
+                  summary: agentEvent.last_assistant_message || '',
+                  status: 'completed',
+                }),
+              }));
+              return {};
+            }],
+          }],
         };
 
         // Capture real-time stderr output from Claude Code process
@@ -836,6 +868,30 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                       data: statusMsg.permissionMode,
                     }));
                   }
+                } else if (sysMsg.subtype === 'task_started') {
+                  const taskStarted = sysMsg as unknown as SDKTaskStartedMessage;
+                  controller.enqueue(formatSSE({
+                    type: 'agent_start',
+                    data: JSON.stringify({
+                      agentId: taskStarted.task_id,
+                      agentType: taskStarted.task_type || 'task',
+                      description: taskStarted.description,
+                    }),
+                  }));
+                } else if (sysMsg.subtype === 'task_notification') {
+                  const taskDone = sysMsg as unknown as SDKTaskNotificationMessage;
+                  controller.enqueue(formatSSE({
+                    type: 'agent_stop',
+                    data: JSON.stringify({
+                      agentId: taskDone.task_id,
+                      agentType: 'task',
+                      summary: taskDone.summary,
+                      status: taskDone.status,
+                      totalTokens: taskDone.usage?.total_tokens,
+                      toolUses: taskDone.usage?.tool_uses,
+                      durationMs: taskDone.usage?.duration_ms,
+                    }),
+                  }));
                 }
               }
               break;

@@ -25,6 +25,8 @@ export interface SSECallbacks {
   onModeChanged: (mode: string) => void;
   onTaskUpdate: (sessionId: string) => void;
   onError: (accumulated: string) => void;
+  onAgentStart: (agentId: string, agentType: string, description?: string) => void;
+  onAgentStop: (agentId: string, status: string, summary?: string, usage?: { totalTokens?: number; toolUses?: number; durationMs?: number }) => void;
 }
 
 /**
@@ -146,6 +148,30 @@ function handleSSEEvent(
       return accumulated;
     }
 
+    case 'agent_start': {
+      try {
+        const data = JSON.parse(event.data);
+        callbacks.onAgentStart(data.agentId, data.agentType, data.description);
+      } catch {
+        // skip malformed
+      }
+      return accumulated;
+    }
+
+    case 'agent_stop': {
+      try {
+        const data = JSON.parse(event.data);
+        callbacks.onAgentStop(data.agentId, data.status || 'completed', data.summary, {
+          totalTokens: data.totalTokens,
+          toolUses: data.toolUses,
+          durationMs: data.durationMs,
+        });
+      } catch {
+        // skip malformed
+      }
+      return accumulated;
+    }
+
     case 'error': {
       const next = accumulated + '\n\n**Error:** ' + event.data;
       callbacks.onError(next);
@@ -233,6 +259,8 @@ export function useSSEStream() {
         onModeChanged: (m) => callbacksRef.current?.onModeChanged(m),
         onTaskUpdate: (s) => callbacksRef.current?.onTaskUpdate(s),
         onError: (a) => callbacksRef.current?.onError(a),
+        onAgentStart: (id, type, desc) => callbacksRef.current?.onAgentStart(id, type, desc),
+        onAgentStop: (id, status, summary, usage) => callbacksRef.current?.onAgentStop(id, status, summary, usage),
       };
 
       return consumeSSEStream(reader, proxied);
