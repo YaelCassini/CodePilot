@@ -115,7 +115,7 @@ interface StreamingMessageProps {
   streamingToolOutput?: string;
   statusText?: string;
   pendingPermission?: PermissionRequestEvent | null;
-  onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>) => void;
+  onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string, updatedPermissions?: Array<Record<string, unknown>>) => void;
   permissionResolved?: 'allow' | 'deny' | null;
   onForceStop?: () => void;
   streamStartedAt?: number;
@@ -161,33 +161,14 @@ function AskUserQuestionUI({
     header?: string;
   }>;
 
+  // For multi-question, track which question tab is active
+  const [activeTab, setActiveTab] = useState(0);
+
   const [selections, setSelections] = useState<Record<string, Set<string>>>({});
   const [otherTexts, setOtherTexts] = useState<Record<string, string>>({});
   const [useOther, setUseOther] = useState<Record<string, boolean>>({});
 
-  const toggleOption = (qIdx: string, label: string, multi: boolean) => {
-    setSelections((prev) => {
-      const current = new Set(prev[qIdx] || []);
-      if (multi) {
-        current.has(label) ? current.delete(label) : current.add(label);
-      } else {
-        current.clear();
-        current.add(label);
-      }
-      return { ...prev, [qIdx]: current };
-    });
-    // Deselect "Other" when picking a regular option
-    setUseOther((prev) => ({ ...prev, [qIdx]: false }));
-  };
-
-  const toggleOther = (qIdx: string, multi: boolean) => {
-    if (!multi) {
-      setSelections((prev) => ({ ...prev, [qIdx]: new Set() }));
-    }
-    setUseOther((prev) => ({ ...prev, [qIdx]: !prev[qIdx] }));
-  };
-
-  const handleSubmit = () => {
+  const buildAnswers = () => {
     const answers: Record<string, string> = {};
     questions.forEach((q, i) => {
       const qIdx = String(i);
@@ -197,7 +178,46 @@ function AskUserQuestionUI({
       }
       answers[q.question] = selected.join(', ');
     });
-    onSubmit('allow', { questions: toolInput.questions, answers });
+    return answers;
+  };
+
+  const handleSubmit = () => {
+    onSubmit('allow', { questions: toolInput.questions, answers: buildAnswers() });
+  };
+
+  const handleOptionClick = (qIdx: string, label: string, multi: boolean) => {
+    const newSelections = { ...selections };
+    const current = new Set(newSelections[qIdx] || []);
+    if (multi) {
+      current.has(label) ? current.delete(label) : current.add(label);
+      newSelections[qIdx] = current;
+      setSelections(newSelections);
+      setUseOther((prev) => ({ ...prev, [qIdx]: false }));
+    } else {
+      // Single select: select and auto-submit immediately
+      current.clear();
+      current.add(label);
+      newSelections[qIdx] = current;
+      const answers: Record<string, string> = {};
+      questions.forEach((q, i) => {
+        const idx = String(i);
+        if (idx === qIdx) {
+          answers[q.question] = label;
+        } else {
+          const sel = Array.from(selections[idx] || []);
+          if (useOther[idx] && otherTexts[idx]?.trim()) sel.push(otherTexts[idx].trim());
+          answers[q.question] = sel.join(', ');
+        }
+      });
+      onSubmit('allow', { questions: toolInput.questions, answers });
+    }
+  };
+
+  const handleOtherClick = (qIdx: string, multi: boolean) => {
+    if (!multi) {
+      setSelections((prev) => ({ ...prev, [qIdx]: new Set() }));
+    }
+    setUseOther((prev) => ({ ...prev, [qIdx]: !prev[qIdx] }));
   };
 
   const hasAnswer = questions.some((_, i) => {
@@ -205,84 +225,132 @@ function AskUserQuestionUI({
     return (selections[qIdx]?.size || 0) > 0 || (useOther[qIdx] && otherTexts[qIdx]?.trim());
   });
 
+  const multiQuestion = questions.length > 1;
+
   return (
-    <div className="space-y-4 py-2">
+    <div className="space-y-3 py-1">
+      {/* Tab navigation for multiple questions */}
+      {multiQuestion && (
+        <div className="flex flex-wrap gap-1.5">
+          {questions.map((q, i) => {
+            const qIdx = String(i);
+            const answered = (selections[qIdx]?.size || 0) > 0 || (useOther[qIdx] && !!otherTexts[qIdx]?.trim());
+            return (
+              <button
+                key={i}
+                onClick={() => setActiveTab(i)}
+                className={`flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
+                  activeTab === i
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${answered ? 'bg-green-500' : 'bg-muted-foreground/40'}`} />
+                {q.header || `Q${i + 1}`}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Question body */}
       {questions.map((q, i) => {
+        if (multiQuestion && i !== activeTab) return null;
         const qIdx = String(i);
         const selected = selections[qIdx] || new Set<string>();
+        const totalOptions = q.options.length + 1; // +1 for "Type something"
+
         return (
           <div key={qIdx} className="space-y-2">
-            {q.header && (
-              <span className="inline-block rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {q.header}
-              </span>
-            )}
             <p className="text-sm font-medium">{q.question}</p>
-            <div className="flex flex-wrap gap-2">
-              {q.options.map((opt) => {
+            <div className="space-y-1">
+              {q.options.map((opt, optIdx) => {
                 const isSelected = selected.has(opt.label);
+                const num = optIdx + 1;
                 return (
                   <button
                     key={opt.label}
-                    onClick={() => toggleOption(qIdx, opt.label, q.multiSelect)}
-                    className={`rounded-lg border h-8 px-3 text-sm font-medium transition-colors ${
-                      isSelected
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border bg-background text-foreground hover:bg-muted'
-                    }`}
+                    onClick={() => handleOptionClick(qIdx, opt.label, q.multiSelect)}
                     title={opt.description}
+                    className={`flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors text-left ${
+                      isSelected
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-foreground hover:bg-muted'
+                    }`}
                   >
-                    {q.multiSelect && (
-                      <span className="mr-1.5">{isSelected ? '☑' : '☐'}</span>
-                    )}
-                    {opt.label}
+                    <span className="shrink-0 tabular-nums text-muted-foreground w-4">{num}.</span>
+                    <span className="flex-1">
+                      {q.multiSelect && (
+                        <span className="mr-1">{isSelected ? '☑' : '☐'}</span>
+                      )}
+                      {opt.label}
+                      {opt.description && (
+                        <span className="ml-1.5 text-xs text-muted-foreground">{opt.description}</span>
+                      )}
+                    </span>
                   </button>
                 );
               })}
-              {/* Other option */}
+              {/* "Type something." — always the last numbered option */}
               <button
-                onClick={() => toggleOther(qIdx, q.multiSelect)}
-                className={`rounded-lg border h-8 px-3 text-sm font-medium transition-colors ${
+                onClick={() => handleOtherClick(qIdx, q.multiSelect)}
+                className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors text-left ${
                   useOther[qIdx]
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border bg-background text-foreground hover:bg-muted'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-foreground hover:bg-muted'
                 }`}
               >
-                Other
+                <span className="shrink-0 tabular-nums text-muted-foreground w-4">{totalOptions}.</span>
+                <span>Type something.</span>
               </button>
+              {useOther[qIdx] && (
+                <div className="pl-6">
+                  <input
+                    type="text"
+                    placeholder="Type your answer..."
+                    value={otherTexts[qIdx] || ''}
+                    onChange={(e) => setOtherTexts((prev) => ({ ...prev, [qIdx]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && otherTexts[qIdx]?.trim()) {
+                        if (!q.multiSelect) {
+                          const answers: Record<string, string> = buildAnswers();
+                          answers[q.question] = otherTexts[qIdx].trim();
+                          onSubmit('allow', { questions: toolInput.questions, answers });
+                        }
+                      }
+                    }}
+                    className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs focus:border-primary focus:outline-none"
+                    autoFocus
+                  />
+                </div>
+              )}
             </div>
-            {useOther[qIdx] && (
-              <input
-                type="text"
-                placeholder="Type your answer..."
-                value={otherTexts[qIdx] || ''}
-                onChange={(e) => setOtherTexts((prev) => ({ ...prev, [qIdx]: e.target.value }))}
-                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs focus:border-primary focus:outline-none"
-                autoFocus
-              />
-            )}
           </div>
         );
       })}
-      <button
-        onClick={handleSubmit}
-        disabled={!hasAnswer}
-        className="rounded-lg bg-primary h-8 px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
-      >
-        Submit
-      </button>
+
+      {/* Submit — only shown for multiSelect or when "Type something" is active */}
+      {(questions.some((_, i) => questions[i].multiSelect) || questions.some((_, i) => useOther[String(i)])) && (
+        <button
+          onClick={handleSubmit}
+          disabled={!hasAnswer}
+          className="rounded-lg bg-primary h-8 px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+        >
+          Submit
+        </button>
+      )}
     </div>
   );
 }
 
 function ExitPlanModeUI({
   toolInput,
-  onApprove,
+  onAllow,
   onDeny,
 }: {
   toolInput: Record<string, unknown>;
-  onApprove: () => void;
-  onDeny: () => void;
+  onAllow: (updatedPermissions?: Array<Record<string, unknown>>) => void;
+  onDeny: (feedback: string) => void;
 }) {
   const allowedPrompts = (toolInput.allowedPrompts || []) as Array<{
     tool: string;
@@ -292,45 +360,101 @@ function ExitPlanModeUI({
     ? toolInput.plan.trim()
     : null;
 
+  // Option 4 "Type something" state
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedback, setFeedback] = useState('');
+
+  const acceptEditsPermission = [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }];
+
+  const options = [
+    {
+      label: 'Yes, auto-accept edits',
+      description: 'Claude will apply file edits without asking for confirmation',
+      action: () => onAllow(acceptEditsPermission),
+    },
+    {
+      label: 'Yes, manually approve edits',
+      description: 'You will be asked to approve each file edit',
+      action: () => onAllow(undefined),
+    },
+  ];
+
+  const handleFeedbackKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      if (feedback.trim()) onDeny(feedback.trim());
+    }
+  };
+
   return (
     <div className="space-y-3">
-      {/* Plan content — rendered above the approval box */}
+      {/* Plan content */}
       {planContent && (
         <MessageResponse>{planContent}</MessageResponse>
       )}
-      {/* Approval box */}
-      <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
-        <div className="flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-          <span className="text-sm font-medium">Plan complete — ready to execute</span>
+      {/* Requested permissions */}
+      {allowedPrompts.length > 0 && (
+        <div className="space-y-1 pl-1">
+          <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Requested permissions:</p>
+          <ul className="space-y-0.5">
+            {allowedPrompts.map((p, i) => (
+              <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">{p.tool}</span>
+                <span>{p.prompt}</span>
+              </li>
+            ))}
+          </ul>
         </div>
-        {allowedPrompts.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">Requested permissions:</p>
-            <ul className="space-y-0.5">
-              {allowedPrompts.map((p, i) => (
-                <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">{p.tool}</span>
-                  <span>{p.prompt}</span>
-                </li>
-              ))}
-            </ul>
+      )}
+      {/* Options as numbered list */}
+      <div className="space-y-1">
+        {options.map((opt, idx) => (
+          <button
+            key={idx}
+            onClick={opt.action}
+            title={opt.description}
+            className="flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors text-left text-foreground hover:bg-muted"
+          >
+            <span className="shrink-0 tabular-nums text-muted-foreground w-4">{idx + 1}.</span>
+            <span className="flex-1">{opt.label}</span>
+          </button>
+        ))}
+        {/* Option 3: Type feedback (always last) */}
+        {!showFeedback ? (
+          <button
+            onClick={() => setShowFeedback(true)}
+            className="flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors text-left text-foreground hover:bg-muted"
+          >
+            <span className="shrink-0 tabular-nums text-muted-foreground w-4">{options.length + 1}.</span>
+            <span>Type something to tell Claude what to change...</span>
+          </button>
+        ) : (
+          <div className="space-y-2 pl-6">
+            <textarea
+              autoFocus
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              onKeyDown={handleFeedbackKeyDown}
+              placeholder="Tell Claude what to change about the plan... (Ctrl+Enter to send)"
+              rows={3}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setShowFeedback(false); setFeedback(''); }}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { if (feedback.trim()) onDeny(feedback.trim()); }}
+                disabled={!feedback.trim()}
+                className="rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+              >
+                Send
+              </button>
+            </div>
           </div>
         )}
-        <div className="flex gap-2">
-          <button
-            onClick={onDeny}
-            className="rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:bg-muted"
-          >
-            Reject
-          </button>
-          <button
-            onClick={onApprove}
-            className="rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Approve & Execute
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -572,8 +696,8 @@ export function StreamingMessage({
         {pendingPermission?.toolName === 'ExitPlanMode' && !permissionResolved && (
           <ExitPlanModeUI
             toolInput={pendingPermission.toolInput as Record<string, unknown>}
-            onApprove={() => onPermissionResponse?.('allow')}
-            onDeny={() => onPermissionResponse?.('deny')}
+            onAllow={(updatedPermissions) => onPermissionResponse?.('allow', undefined, undefined, updatedPermissions)}
+            onDeny={(feedback) => onPermissionResponse?.('deny', undefined, feedback || undefined)}
           />
         )}
         {pendingPermission?.toolName === 'ExitPlanMode' && permissionResolved === 'allow' && (
