@@ -2,6 +2,36 @@
 
 CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 
+## 核心设计准则：GUI 仅作显示层
+
+**本项目使用 `claude-internal`（内网版 Claude Code CLI）作为底层引擎。**
+
+> GUI 的唯一职责是调用 `claude-internal` 并展示其输出，绝不在 GUI 层引入任何与 Claude 行为相关的自有逻辑。
+
+### 禁止在 GUI 层实现的内容
+
+以下所有能力必须完全由 `claude-internal` 底层负责，GUI **不得**自行实现或覆盖：
+
+- **权限控制**：工具允许/禁止、`dangerously_skip_permissions` 等权限判断，一律交由 `claude-internal` 处理，GUI 只能透传参数，不得自行拦截或注入额外逻辑
+- **MCP（Model Context Protocol）**：MCP server 的注册、调用、生命周期管理全部由 `claude-internal` 负责，GUI 不得重复实现
+- **Skill / Agent 调度**：skill 触发、agent team 编排、子任务分发等由 `claude-internal` 底层执行，GUI 不介入调度逻辑
+- **工具调用**：Bash、Read、Write、Edit 等工具的实际执行由 `claude-internal` 完成，GUI 只展示工具调用过程和结果
+- **会话状态**：对话上下文、历史记录的管理以 `claude-internal` 的状态为准，GUI 层不得维护独立的"平行状态"
+
+### GUI 允许做的事
+
+- 展示 `claude-internal` 的流式输出（文本、工具调用、思考过程等）
+- 提供用户输入界面，将用户消息传递给 `claude-internal`
+- 读取并展示 `claude-internal` 写入磁盘的 session 文件（只读导入）
+- 将用户在 UI 上的配置选项（如模型选择、工作目录）作为**启动参数**传给 `claude-internal`，不自行解释这些参数
+- 管理窗口、会话列表等纯 UI 状态
+
+### 发现冲突时的处理原则
+
+如果某个功能在 GUI 层和 `claude-internal` 底层都有实现，**以 `claude-internal` 为准，删除 GUI 层的重复逻辑**，而不是两边并存。
+
+**每次新增功能前，必须先确认该功能是否应由 `claude-internal` 底层承担，若是则只做 UI 透传，不写业务逻辑。**
+
 ## 开发规则
 
 **提交前必须详尽测试：**
