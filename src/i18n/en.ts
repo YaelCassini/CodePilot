@@ -50,7 +50,7 @@ const en = {
 
   // ── Streaming message ───────────────────────────────────────
   'streaming.thinking': 'Thinking...',
-  'streaming.allowForSession': 'Auto this session',
+  'streaming.allowForSession': 'Always allow for this project',
   'streaming.allowed': 'Allowed',
   'streaming.denied': 'Denied',
 

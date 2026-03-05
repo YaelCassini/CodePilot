@@ -47,7 +47,7 @@ const zh: Record<TranslationKey, string> = {
 
   // ── Streaming message ───────────────────────────────────────
   'streaming.thinking': '思考中...',
-  'streaming.allowForSession': '本次会话自动执行',
+  'streaming.allowForSession': '始终允许（此项目）',
   'streaming.allowed': '已允许',
   'streaming.denied': '已拒绝',
 
