@@ -105,7 +105,7 @@ export function McpManager({ projectPath }: McpManagerProps = {}) {
       )}
       {scope === 'project' && projectPath && (
         <p className="text-[10px] text-muted-foreground mb-2 truncate">
-          {projectPath}/.claude/settings.json · ~/.claude-internal/.claude.json
+          {projectPath}/.mcp.json · .claude/settings.json · ~/.claude-internal/.claude.json
         </p>
       )}
       {scope === 'global' && (

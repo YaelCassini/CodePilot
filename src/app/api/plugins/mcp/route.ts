@@ -21,6 +21,12 @@ function getProjectSettingsLocalPath(projectPath: string): string {
   return path.join(projectPath, '.claude', 'settings.local.json');
 }
 
+// {project}/.mcp.json — standard project-level MCP config (can be committed to git).
+// CLI loads this automatically alongside settings files.
+function getProjectMcpJsonPath(projectPath: string): string {
+  return path.join(projectPath, '.mcp.json');
+}
+
 // ~/.claude-internal/.claude.json — CLI internal DB.
 // Stores project-scoped MCP under: projects[projectPath].mcpServers
 function getCliInternalDbPath(): string {
@@ -70,15 +76,19 @@ export async function GET(request: NextRequest): Promise<NextResponse<MCPConfigR
         return NextResponse.json({ error: 'Invalid project path' }, { status: 400 });
       }
 
-      // Source 1: {project}/.claude/settings.json
+      // Source 1: {project}/.mcp.json (standard project MCP config, git-committable)
+      const mcpJson = readJsonFile(getProjectMcpJsonPath(projectPath));
+      // Source 2: {project}/.claude/settings.json
       const settings = readJsonFile(getProjectSettingsPath(projectPath));
-      // Source 2: {project}/.claude/settings.local.json
+      // Source 3: {project}/.claude/settings.local.json
       const settingsLocal = readJsonFile(getProjectSettingsLocalPath(projectPath));
-      // Source 3: ~/.claude-internal/.claude.json → projects[projectPath].mcpServers
+      // Source 4: ~/.claude-internal/.claude.json → projects[projectPath].mcpServers
       const cliDbMcp = readProjectMcpFromCliDb(projectPath);
 
-      // Merge all sources: CLI DB is the authoritative store for project MCPs added via CLI
+      // Merge all sources (higher priority overwrites lower):
+      // .mcp.json < .claude.json DB < settings.local.json < settings.json
       const mcpServers: Record<string, MCPServerConfig> = {
+        ...((mcpJson.mcpServers || {}) as Record<string, MCPServerConfig>),
         ...cliDbMcp,
         ...((settingsLocal.mcpServers || {}) as Record<string, MCPServerConfig>),
         ...((settings.mcpServers || {}) as Record<string, MCPServerConfig>),
