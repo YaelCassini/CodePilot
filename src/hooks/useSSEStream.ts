@@ -25,8 +25,8 @@ export interface SSECallbacks {
   onModeChanged: (mode: string) => void;
   onTaskUpdate: (sessionId: string) => void;
   onError: (accumulated: string) => void;
-  onAgentStart: (agentId: string, agentType: string, description?: string) => void;
-  onAgentStop: (agentId: string, status: string, summary?: string, usage?: { totalTokens?: number; toolUses?: number; durationMs?: number }) => void;
+  onAgentStart: (agentId: string, agentType: string, description?: string, mainSessionId?: string, projectPath?: string) => void;
+  onAgentStop: (agentId: string, status: string, summary?: string, usage?: { totalTokens?: number; toolUses?: number; durationMs?: number }, transcriptPath?: string) => void;
 }
 
 /**
@@ -151,7 +151,7 @@ function handleSSEEvent(
     case 'agent_start': {
       try {
         const data = JSON.parse(event.data);
-        callbacks.onAgentStart(data.agentId, data.agentType, data.description);
+        callbacks.onAgentStart(data.agentId, data.agentType, data.description, data.mainSessionId, data.projectPath);
       } catch {
         // skip malformed
       }
@@ -165,7 +165,7 @@ function handleSSEEvent(
           totalTokens: data.totalTokens,
           toolUses: data.toolUses,
           durationMs: data.durationMs,
-        });
+        }, data.transcriptPath || '');
       } catch {
         // skip malformed
       }
@@ -259,8 +259,8 @@ export function useSSEStream() {
         onModeChanged: (m) => callbacksRef.current?.onModeChanged(m),
         onTaskUpdate: (s) => callbacksRef.current?.onTaskUpdate(s),
         onError: (a) => callbacksRef.current?.onError(a),
-        onAgentStart: (id, type, desc) => callbacksRef.current?.onAgentStart(id, type, desc),
-        onAgentStop: (id, status, summary, usage) => callbacksRef.current?.onAgentStop(id, status, summary, usage),
+        onAgentStart: (id, type, desc, mainSessionId, projectPath) => callbacksRef.current?.onAgentStart(id, type, desc, mainSessionId, projectPath),
+        onAgentStop: (id, status, summary, usage, transcriptPath) => callbacksRef.current?.onAgentStop(id, status, summary, usage, transcriptPath),
       };
 
       return consumeSSEStream(reader, proxied);

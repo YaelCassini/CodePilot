@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { StructureFolderIcon, PanelRightCloseIcon } from "@hugeicons/core-free-icons";
-import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -15,6 +14,19 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { FileTree } from "@/components/project/FileTree";
 import { TaskList } from "@/components/project/TaskList";
 import { PermissionsPanel } from "@/components/project/PermissionsPanel";
+import { AgentTeamPanel } from "@/components/project/AgentTeamPanel";
+import { VerticalResizeHandle } from "@/components/layout/VerticalResizeHandle";
+
+// Minimum and maximum heights for each section (px)
+const MIN_H = 60;
+const DEFAULT_TASKS_H = 160;
+const DEFAULT_FILES_H = 300;
+const DEFAULT_PERMISSIONS_H = 200;
+// Agent Team fills the remaining space (no explicit height)
+
+const LS_TASKS = "codepilot_rightpanel_tasks_h";
+const LS_FILES = "codepilot_rightpanel_files_h";
+const LS_PERMISSIONS = "codepilot_rightpanel_permissions_h";
 
 interface RightPanelProps {
   width?: number;
@@ -23,14 +35,42 @@ interface RightPanelProps {
 export function RightPanel({ width }: RightPanelProps) {
   const { panelOpen, setPanelOpen, workingDirectory, sessionId, previewFile, setPreviewFile } = usePanel();
   const { t } = useTranslation();
-  const [permissionsOpen, setPermissionsOpen] = useState(true);
+
+  const [tasksH, setTasksH] = useState<number>(() => {
+    if (typeof window === "undefined") return DEFAULT_TASKS_H;
+    return parseInt(localStorage.getItem(LS_TASKS) ?? String(DEFAULT_TASKS_H), 10);
+  });
+  const [filesH, setFilesH] = useState<number>(() => {
+    if (typeof window === "undefined") return DEFAULT_FILES_H;
+    return parseInt(localStorage.getItem(LS_FILES) ?? String(DEFAULT_FILES_H), 10);
+  });
+  const [permissionsH, setPermissionsH] = useState<number>(() => {
+    if (typeof window === "undefined") return DEFAULT_PERMISSIONS_H;
+    return parseInt(localStorage.getItem(LS_PERMISSIONS) ?? String(DEFAULT_PERMISSIONS_H), 10);
+  });
+
+  // Persist on change
+  useEffect(() => { localStorage.setItem(LS_TASKS, String(tasksH)); }, [tasksH]);
+  useEffect(() => { localStorage.setItem(LS_FILES, String(filesH)); }, [filesH]);
+  useEffect(() => { localStorage.setItem(LS_PERMISSIONS, String(permissionsH)); }, [permissionsH]);
+
+  const handleTasksResize = useCallback((delta: number) => {
+    setTasksH(h => Math.max(MIN_H, h + delta));
+  }, []);
+
+  const handleFilesResize = useCallback((delta: number) => {
+    setFilesH(h => Math.max(MIN_H, h + delta));
+  }, []);
+
+  const handlePermissionsResize = useCallback((delta: number) => {
+    setPermissionsH(h => Math.max(MIN_H, h + delta));
+  }, []);
 
   const handleFileAdd = useCallback((path: string) => {
-    window.dispatchEvent(new CustomEvent('attach-file-to-chat', { detail: { path } }));
+    window.dispatchEvent(new CustomEvent("attach-file-to-chat", { detail: { path } }));
   }, []);
 
   const handleFileSelect = useCallback((path: string) => {
-    // Only open preview for text-based files, skip images/videos/binaries
     const ext = path.split(".").pop()?.toLowerCase() || "";
     const NON_PREVIEWABLE = new Set([
       "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "svg", "avif",
@@ -42,13 +82,7 @@ export function RightPanel({ width }: RightPanelProps) {
       "woff", "woff2", "ttf", "otf", "eot",
     ]);
     if (NON_PREVIEWABLE.has(ext)) return;
-
-    // Toggle: clicking the same file closes the preview
-    if (previewFile === path) {
-      setPreviewFile(null);
-    } else {
-      setPreviewFile(path);
-    }
+    setPreviewFile(previewFile === path ? null : path);
   }, [previewFile, setPreviewFile]);
 
   if (!panelOpen) {
@@ -56,89 +90,100 @@ export function RightPanel({ width }: RightPanelProps) {
       <div className="flex flex-col items-center gap-2 bg-background p-2 mt-5">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setPanelOpen(true)}
-            >
+            <Button variant="ghost" size="icon-sm" onClick={() => setPanelOpen(true)}>
               <HugeiconsIcon icon={StructureFolderIcon} className="h-4 w-4" />
-              <span className="sr-only">{t('panel.openPanel')}</span>
+              <span className="sr-only">{t("panel.openPanel")}</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="left">{t('panel.openPanel')}</TooltipContent>
+          <TooltipContent side="left">{t("panel.openPanel")}</TooltipContent>
         </Tooltip>
       </div>
     );
   }
 
   return (
-    <aside className="hidden h-full shrink-0 flex-col overflow-hidden bg-background lg:flex" style={{ width: width ?? 288 }}>
+    <aside
+      className="hidden h-full shrink-0 flex-col overflow-hidden bg-background lg:flex"
+      style={{ width: width ?? 288 }}
+    >
       {/* Header */}
       <div className="flex h-12 mt-5 shrink-0 items-center justify-between px-4">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {t('panel.tasks')}
+          {t("panel.tasks")}
         </span>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setPanelOpen(false)}
-            >
+            <Button variant="ghost" size="icon-sm" onClick={() => setPanelOpen(false)}>
               <HugeiconsIcon icon={PanelRightCloseIcon} className="h-4 w-4" />
-              <span className="sr-only">{t('panel.closePanel')}</span>
+              <span className="sr-only">{t("panel.closePanel")}</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="left">{t('panel.closePanel')}</TooltipContent>
+          <TooltipContent side="left">{t("panel.closePanel")}</TooltipContent>
         </Tooltip>
       </div>
 
-      {/* Body — TaskList + divider + FileTree */}
+      {/* Body — three vertically-resizable sections */}
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-        {/* Tasks */}
-        <div className="shrink-0 px-3 pb-3">
+
+        {/* ── Tasks ── fixed height, draggable bottom edge */}
+        <div
+          className="shrink-0 overflow-y-auto px-3 pb-2"
+          style={{ height: tasksH }}
+        >
           <TaskList sessionId={sessionId} />
         </div>
 
-        {/* Divider */}
-        <div className="mx-4 mt-1 mb-2 border-t border-border/40" />
+        {/* Drag handle between Tasks and Files */}
+        <VerticalResizeHandle onResize={handleTasksResize} />
 
-        {/* File tree */}
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <div className="px-4 pt-1 pb-1">
+        {/* ── Files ── fixed height, draggable bottom edge */}
+        <div
+          className="shrink-0 overflow-hidden flex flex-col"
+          style={{ height: filesH }}
+        >
+          <div className="px-4 pt-1 pb-1 shrink-0">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {t('panel.files')}
+              {t("panel.files")}
             </span>
           </div>
-          <FileTree
-            workingDirectory={workingDirectory}
-            onFileSelect={handleFileSelect}
-            onFileAdd={handleFileAdd}
-          />
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <FileTree
+              workingDirectory={workingDirectory}
+              onFileSelect={handleFileSelect}
+              onFileAdd={handleFileAdd}
+            />
+          </div>
         </div>
 
-        {/* Divider */}
-        <div className="mx-4 mt-2 mb-0 border-t border-border/40 shrink-0" />
+        {/* Drag handle between Files and Permissions */}
+        <VerticalResizeHandle onResize={handleFilesResize} />
 
-        {/* Permissions — collapsible section */}
-        <div className="shrink-0 px-3 overflow-y-auto">
-          <button
-            onClick={() => setPermissionsOpen(v => !v)}
-            className="w-full flex items-center justify-between px-0.5 py-1.5 group"
-          >
+        {/* ── Permissions ── fixed height, draggable bottom edge */}
+        <div
+          className="shrink-0 overflow-y-auto px-3 pb-3"
+          style={{ height: permissionsH }}
+        >
+          <div className="py-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Permissions
             </span>
-            <ChevronDown
-              className={`h-3 w-3 text-muted-foreground transition-transform ${permissionsOpen ? '' : '-rotate-90'}`}
-            />
-          </button>
-          {permissionsOpen && (
-            <div className="pb-3">
-              <PermissionsPanel sessionId={sessionId} />
-            </div>
-          )}
+          </div>
+          <PermissionsPanel sessionId={sessionId} workingDirectory={workingDirectory} />
         </div>
+
+        {/* Drag handle between Permissions and Agent Team */}
+        <VerticalResizeHandle onResize={handlePermissionsResize} />
+
+        {/* ── Agent Team ── fills remaining space, scrollable */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3">
+          <div className="py-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {t('panel.agentTeam')}
+            </span>
+          </div>
+          <AgentTeamPanel sessionId={sessionId} />
+        </div>
+
       </div>
     </aside>
   );

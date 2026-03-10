@@ -321,17 +321,19 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
         markActive();
         window.dispatchEvent(new CustomEvent('tasks-updated'));
       },
-      onAgentStart: (agentId, agentType, description) => {
+      onAgentStart: (agentId, agentType, description, mainSessionId, projectPath) => {
         markActive();
         stream.activeAgentsMap.set(agentId, {
           agentId,
           agentType: agentType || description || 'agent',
           startedAt: Date.now(),
           status: 'running',
+          mainSessionId: mainSessionId || undefined,
+          projectPath: projectPath || undefined,
         });
         emit(stream, 'snapshot-updated');
       },
-      onAgentStop: (agentId, status, summary, usage) => {
+      onAgentStop: (agentId, status, summary, usage, transcriptPath) => {
         markActive();
         const existing = stream.activeAgentsMap.get(agentId);
         if (existing) {
@@ -343,6 +345,7 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
             totalTokens: usage?.totalTokens,
             toolUses: usage?.toolUses,
             durationMs: usage?.durationMs,
+            transcriptPath: transcriptPath || undefined,
           });
         }
         emit(stream, 'snapshot-updated');

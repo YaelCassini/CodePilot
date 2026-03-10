@@ -597,6 +597,8 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                 data: JSON.stringify({
                   agentId: agentEvent.agent_id,
                   agentType: agentEvent.agent_type,
+                  mainSessionId: agentEvent.session_id,
+                  projectPath: agentEvent.cwd,
                 }),
               }));
               return {};
@@ -612,6 +614,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                   agentType: agentEvent.agent_type,
                   summary: agentEvent.last_assistant_message || '',
                   status: 'completed',
+                  transcriptPath: agentEvent.agent_transcript_path || '',
                 }),
               }));
               return {};

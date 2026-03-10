@@ -704,4 +704,7 @@ export interface AgentInfo {
   totalTokens?: number;
   toolUses?: number;
   durationMs?: number;
+  transcriptPath?: string;
+  mainSessionId?: string;
+  projectPath?: string;
 }
