@@ -23,6 +23,7 @@ export interface ChatSession {
   runtime_error: string;
   allowed_tools: string;    // JSON array string, e.g. '["Bash","Read"]'
   disallowed_tools: string; // JSON array string, e.g. '["Write","Edit"]'
+  permission_profile: 'default' | 'full_access';
 }
 
 // ==========================================

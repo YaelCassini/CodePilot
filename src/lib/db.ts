@@ -338,6 +338,9 @@ function migrateDb(db: Database.Database): void {
   if (!colNames.includes('disallowed_tools')) {
     db.exec("ALTER TABLE chat_sessions ADD COLUMN disallowed_tools TEXT NOT NULL DEFAULT '[]'");
   }
+  if (!colNames.includes('permission_profile')) {
+    db.exec("ALTER TABLE chat_sessions ADD COLUMN permission_profile TEXT NOT NULL DEFAULT 'default'");
+  }
   db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_runtime_status ON chat_sessions(runtime_status)");
 
   // Migrate is_active provider to default_provider_id setting
@@ -816,6 +819,11 @@ export function updateSessionAllowedTools(id: string, tools: string[]): void {
 export function updateSessionDisallowedTools(id: string, tools: string[]): void {
   const db = getDb();
   db.prepare('UPDATE chat_sessions SET disallowed_tools = ? WHERE id = ?').run(JSON.stringify(tools), id);
+}
+
+export function updateSessionPermissionProfile(id: string, profile: string): void {
+  const db = getDb();
+  db.prepare('UPDATE chat_sessions SET permission_profile = ? WHERE id = ?').run(profile, id);
 }
 
 // ==========================================

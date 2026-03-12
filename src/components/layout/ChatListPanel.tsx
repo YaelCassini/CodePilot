@@ -59,14 +59,21 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(
-    () => loadCollapsedProjects()
+    new Set()
   );
   const [hoveredFolder, setHoveredFolder] = useState<string | null>(null);
   const [creatingChat, setCreatingChat] = useState(false);
   const { workspacePath } = useAssistantWorkspace();
   const [projectAliases, setProjectAliases] = useState<Record<string, string>>(
-    () => loadProjectAliases()
+    {}
   );
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setCollapsedProjects(loadCollapsedProjects());
+    setProjectAliases(loadProjectAliases());
+    setHydrated(true);
+  }, []);
 
   const handleProjectRename = useCallback((wd: string, newName: string) => {
     setProjectAliases((prev) => {
