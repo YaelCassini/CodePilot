@@ -421,6 +421,7 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
       },
       onKeepAlive: () => {
         markActive();
+      },
       onError: (acc) => {
         markActive();
         stream.accumulatedText = acc;

@@ -38,6 +38,7 @@ interface PermissionPromptProps {
   onPermissionResponse: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string) => void;
   toolUses?: ToolUseInfo[];
   permissionProfile?: 'default' | 'full_access';
+  permissionQueueSize?: number;
 }
 
 function AskUserQuestionUI({
@@ -316,6 +317,7 @@ export function PermissionPrompt({
   onPermissionResponse,
   toolUses = [],
   permissionProfile,
+  permissionQueueSize = 0,
 }: PermissionPromptProps) {
   const { t } = useTranslation();
 
@@ -401,6 +403,11 @@ export function PermissionPrompt({
         >
           <ConfirmationTitle>
             <span className="font-medium">{pendingPermission?.toolName}</span>
+            {permissionQueueSize > 1 && (
+              <span className="ml-2 inline-flex items-center rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
+                +{permissionQueueSize - 1} pending
+              </span>
+            )}
             {pendingPermission?.decisionReason && (
               <span className="text-muted-foreground ml-2">
                 — {pendingPermission.decisionReason}

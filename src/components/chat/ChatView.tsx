@@ -385,6 +385,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         onPermissionResponse={handlePermissionResponse}
         toolUses={toolUses}
         permissionProfile={permissionProfile}
+        permissionQueueSize={permissionQueueSize}
       />
       {/* Batch image generation panels */}
       <BatchExecutionDashboard />

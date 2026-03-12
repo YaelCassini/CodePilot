@@ -384,15 +384,25 @@ export function PermissionsPanel({ sessionId, workingDirectory }: PermissionsPan
   }, [loadAllRules]);
 
   // Subscribe to stream snapshot for session-level permissions
+  // and auto-refresh file-based rules after a permission is granted
+  const lastResolvedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!sessionId) return;
     const existing = getSnapshot(sessionId);
     setGrantedOnceTools(existing?.sessionGrantedTools ?? []);
     const unsubscribe = subscribe(sessionId, (event) => {
       setGrantedOnceTools(event.snapshot.sessionGrantedTools ?? []);
+      const resolved = event.snapshot.permissionResolved;
+      if (resolved && resolved !== lastResolvedRef.current) {
+        lastResolvedRef.current = resolved;
+        setTimeout(() => loadAllRules(), 800);
+      }
+      if (!resolved) {
+        lastResolvedRef.current = null;
+      }
     });
     return unsubscribe;
-  }, [sessionId]);
+  }, [sessionId, loadAllRules]);
 
   const handleSkipPermToggle = useCallback(async (checked: boolean) => {
     setSkipPermissions(checked);

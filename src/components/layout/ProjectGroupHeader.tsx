@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useRef, useCallback } from "react";
 import {
   Folder,
   CaretDown,
@@ -26,6 +27,7 @@ interface ProjectGroupHeaderProps {
   onMouseEnter: () => void;
   onMouseLeave: () => void;
   onCreateSession: (e: React.MouseEvent) => void;
+  onRename?: (newName: string) => void;
 }
 
 export function ProjectGroupHeader({
@@ -38,7 +40,28 @@ export function ProjectGroupHeader({
   onMouseEnter,
   onMouseLeave,
   onCreateSession,
+  onRename,
 }: ProjectGroupHeaderProps) {
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const startRenaming = useCallback(() => {
+    setRenaming(true);
+    setRenameValue(displayName);
+    setTimeout(() => inputRef.current?.select(), 0);
+  }, [displayName]);
+
+  const commitRename = useCallback(() => {
+    setRenaming(false);
+    const trimmed = renameValue.trim();
+    onRename?.(trimmed);
+  }, [renameValue, onRename]);
+
+  const cancelRename = useCallback(() => {
+    setRenaming(false);
+  }, []);
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -47,19 +70,15 @@ export function ProjectGroupHeader({
             "flex items-center gap-1 rounded-md px-2 py-1 cursor-pointer select-none transition-colors",
             "hover:bg-accent/50"
           )}
-          onClick={onToggle}
+          onClick={() => { if (!renaming) onToggle(); }}
           onDoubleClick={(e) => {
             e.stopPropagation();
+            if (workingDirectory) startRenaming();
+          }}
+          onContextMenu={(e) => {
             if (workingDirectory) {
-              if (window.electronAPI?.shell?.openPath) {
-                window.electronAPI.shell.openPath(workingDirectory);
-              } else {
-                fetch('/api/files/open', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ path: workingDirectory }),
-                }).catch(() => {});
-              }
+              e.preventDefault();
+              startRenaming();
             }
           }}
           onMouseEnter={onMouseEnter}
@@ -75,9 +94,25 @@ export function ProjectGroupHeader({
           ) : (
             <FolderOpen size={16} className="shrink-0 text-muted-foreground" />
           )}
-          <span className="flex-1 truncate text-[13px] font-medium text-sidebar-foreground">
-            {displayName}
-          </span>
+          {renaming ? (
+            <input
+              ref={inputRef}
+              className="flex-1 min-w-0 bg-transparent text-[13px] font-medium text-sidebar-foreground outline-none border-b border-primary/50 py-0"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename();
+                if (e.key === "Escape") cancelRename();
+              }}
+              onClick={(e) => e.stopPropagation()}
+              autoFocus
+            />
+          ) : (
+            <span className="flex-1 truncate text-[13px] font-medium text-sidebar-foreground">
+              {displayName}
+            </span>
+          )}
           {isWorkspace && (
             <UserCircle size={14} className="shrink-0 text-muted-foreground" />
           )}
@@ -110,7 +145,11 @@ export function ProjectGroupHeader({
       </TooltipTrigger>
       <TooltipContent side="right" className="max-w-xs">
         <p className="text-xs break-all">{workingDirectory || 'No Project'}</p>
-        {workingDirectory && <p className="text-[10px] text-muted-foreground mt-0.5">Double-click to open in Finder</p>}
+        {workingDirectory && (
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            Double-click or right-click to rename
+          </p>
+        )}
       </TooltipContent>
     </Tooltip>
   );

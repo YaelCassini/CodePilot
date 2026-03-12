@@ -4,6 +4,20 @@ import type { TranslationKey } from "@/i18n";
 
 const COLLAPSED_PROJECTS_KEY = "codepilot:collapsed-projects";
 export const COLLAPSED_INITIALIZED_KEY = "codepilot:collapsed-initialized";
+const PROJECT_ALIASES_KEY = "codepilot:project-aliases";
+
+export function loadProjectAliases(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(PROJECT_ALIASES_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return {};
+}
+
+export function saveProjectAliases(aliases: Record<string, string>) {
+  localStorage.setItem(PROJECT_ALIASES_KEY, JSON.stringify(aliases));
+}
 
 export function loadCollapsedProjects(): Set<string> {
   if (typeof window === 'undefined') return new Set();
@@ -27,7 +41,10 @@ export interface ProjectGroup {
   latestUpdatedAt: number;
 }
 
-export function groupSessionsByProject(sessions: ChatSession[]): ProjectGroup[] {
+export function groupSessionsByProject(
+  sessions: ChatSession[],
+  aliases: Record<string, string> = {},
+): ProjectGroup[] {
   const map = new Map<string, ChatSession[]>();
   for (const session of sessions) {
     const key = session.working_directory || "";
@@ -43,9 +60,10 @@ export function groupSessionsByProject(sessions: ChatSession[]): ProjectGroup[] 
         parseDBDate(b.updated_at).getTime() - parseDBDate(a.updated_at).getTime()
     );
     const displayName =
-      wd === ""
+      aliases[wd] ||
+      (wd === ""
         ? "No Project"
-        : groupSessions[0]?.project_name || wd.split("/").pop() || wd;
+        : groupSessions[0]?.project_name || wd.split("/").pop() || wd);
     const latestUpdatedAt = parseDBDate(groupSessions[0].updated_at).getTime();
     groups.push({
       workingDirectory: wd,

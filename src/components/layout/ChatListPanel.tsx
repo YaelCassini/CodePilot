@@ -31,6 +31,8 @@ import {
   groupSessionsByProject,
   loadCollapsedProjects,
   saveCollapsedProjects,
+  loadProjectAliases,
+  saveProjectAliases,
   COLLAPSED_INITIALIZED_KEY,
 } from "./chat-list-utils";
 import type { ChatSession } from "@/types";
@@ -62,6 +64,22 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   const [hoveredFolder, setHoveredFolder] = useState<string | null>(null);
   const [creatingChat, setCreatingChat] = useState(false);
   const { workspacePath } = useAssistantWorkspace();
+  const [projectAliases, setProjectAliases] = useState<Record<string, string>>(
+    () => loadProjectAliases()
+  );
+
+  const handleProjectRename = useCallback((wd: string, newName: string) => {
+    setProjectAliases((prev) => {
+      const next = { ...prev };
+      if (newName) {
+        next[wd] = newName;
+      } else {
+        delete next[wd];
+      }
+      saveProjectAliases(next);
+      return next;
+    });
+  }, []);
 
   /** Read current model + provider_id from localStorage for new session creation */
   const getCurrentModelAndProvider = useCallback(() => {
@@ -284,8 +302,8 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   }, [sessions, searchQuery, isSplitActive, splitSessionIds]);
 
   const projectGroups = useMemo(
-    () => groupSessionsByProject(filteredSessions),
-    [filteredSessions]
+    () => groupSessionsByProject(filteredSessions, projectAliases),
+    [filteredSessions, projectAliases]
   );
 
   // On first use, auto-collapse all project groups except the most recent one
@@ -418,6 +436,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                     onMouseEnter={() => setHoveredFolder(group.workingDirectory)}
                     onMouseLeave={() => setHoveredFolder(null)}
                     onCreateSession={(e) => handleCreateSessionInProject(e, group.workingDirectory)}
+                    onRename={(name) => handleProjectRename(group.workingDirectory, name)}
                   />
 
                   {/* Session items */}
