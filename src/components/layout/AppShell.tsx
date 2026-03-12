@@ -74,20 +74,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
-  const [chatListOpenRaw, setChatListOpenRaw] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia(`(min-width: ${LG_BREAKPOINT}px)`).matches;
-  });
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
-  // Panel width state with localStorage persistence
-  const [chatListWidth, setChatListWidth] = useState(() => {
-    if (typeof window === "undefined") return 240;
-    return parseInt(localStorage.getItem("codepilot_chatlist_width") || "240");
-  });
-  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
-    if (typeof window === "undefined") return 288;
-    return parseInt(localStorage.getItem("codepilot_rightpanel_width") || "288");
-  });
+  const [chatListOpenRaw, setChatListOpenRaw] = useState(false);
+  const [chatListWidth, setChatListWidth] = useState(240);
+  const [rightPanelWidth, setRightPanelWidth] = useState(288);
+
+  useEffect(() => {
+    setChatListOpenRaw(window.matchMedia(`(min-width: ${LG_BREAKPOINT}px)`).matches);
+    setChatListWidth(parseInt(localStorage.getItem("codepilot_chatlist_width") || "240"));
+    setRightPanelWidth(parseInt(localStorage.getItem("codepilot_rightpanel_width") || "288"));
+  }, []);
 
   const handleChatListResize = useCallback((delta: number) => {
     setChatListWidth((w) => Math.min(CHATLIST_MAX, Math.max(CHATLIST_MIN, w + delta)));
@@ -148,8 +146,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   // --- Split-screen state ---
-  const [splitSessions, setSplitSessions] = useState<SplitSession[]>(() => loadSplitSessions());
-  const [activeColumnId, setActiveColumnIdRaw] = useState<string>(() => loadActiveColumn());
+  const [splitSessions, setSplitSessions] = useState<SplitSession[]>([]);
+  const [activeColumnId, setActiveColumnIdRaw] = useState<string>("");
+
+  useEffect(() => {
+    setSplitSessions(loadSplitSessions());
+    setActiveColumnIdRaw(loadActiveColumn());
+  }, []);
   const isSplitActive = splitSessions.length >= 2;
   const isChatDetailRoute = pathname.startsWith("/chat/") || isSplitActive;
 
@@ -300,10 +303,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // --- Doc Preview state ---
   const [previewFile, setPreviewFileRaw] = useState<string | null>(null);
   const [previewViewMode, setPreviewViewMode] = useState<PreviewViewMode>("source");
-  const [docPreviewWidth, setDocPreviewWidth] = useState(() => {
-    if (typeof window === "undefined") return 480;
-    return parseInt(localStorage.getItem("codepilot_docpreview_width") || "480");
-  });
+  const [docPreviewWidth, setDocPreviewWidth] = useState(480);
+
+  useEffect(() => {
+    setDocPreviewWidth(parseInt(localStorage.getItem("codepilot_docpreview_width") || "480"));
+  }, []);
 
   const setPreviewFile = useCallback((path: string | null) => {
     setPreviewFileRaw(path);
