@@ -325,7 +325,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
     localStorage.setItem(COLLAPSED_INITIALIZED_KEY, "1");
   }, [projectGroups]);
 
-  if (!open) return null;
+  if (!open || !hydrated) return null;
 
   return (
     <aside
