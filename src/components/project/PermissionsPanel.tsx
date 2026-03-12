@@ -3,20 +3,19 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  InformationCircleIcon,
-  RefreshIcon,
-  Delete01Icon,
-  Add01Icon,
-  Globe02Icon,
-  Folder01Icon,
-  UserIcon,
-  Timer01Icon,
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  Cancel01Icon,
-} from "@hugeicons/core-free-icons";
+  Info,
+  ArrowClockwise,
+  Trash,
+  Plus,
+  Globe,
+  Folder,
+  UserCircle,
+  Clock,
+  CaretDown,
+  CaretRight,
+  X,
+} from "@/components/ui/icon";
 import {
   subscribe,
   getSnapshot,
@@ -54,7 +53,7 @@ const SCOPE_META: Record<
   {
     label: string;
     sublabel: string;
-    icon: typeof Globe02Icon;
+    icon: typeof Globe;
     color: string;
     borderColor: string;
     bgColor: string;
@@ -63,7 +62,7 @@ const SCOPE_META: Record<
   global: {
     label: "Global",
     sublabel: "~/.claude-internal/settings.json · all projects",
-    icon: Globe02Icon,
+    icon: Globe,
     color: "text-purple-500",
     borderColor: "border-purple-500/20",
     bgColor: "bg-purple-500/5",
@@ -71,7 +70,7 @@ const SCOPE_META: Record<
   project: {
     label: "Project (shared)",
     sublabel: ".claude/settings.json · git-tracked",
-    icon: Folder01Icon,
+    icon: Folder,
     color: "text-cyan-500",
     borderColor: "border-cyan-500/20",
     bgColor: "bg-cyan-500/5",
@@ -79,7 +78,7 @@ const SCOPE_META: Record<
   local: {
     label: "Project (local)",
     sublabel: ".claude/settings.local.json · gitignored",
-    icon: UserIcon,
+    icon: UserCircle,
     color: "text-green-500",
     borderColor: "border-green-500/20",
     bgColor: "bg-green-500/5",
@@ -117,7 +116,7 @@ function RuleItem({ rule, type, onRemove }: RuleItemProps) {
         className="opacity-0 group-hover:opacity-100 transition-opacity h-4 w-4 shrink-0 text-muted-foreground/50 hover:text-destructive"
         title="Remove rule"
       >
-        <HugeiconsIcon icon={Delete01Icon} className="h-3 w-3" />
+        <Trash size={12} />
       </button>
     </div>
   );
@@ -155,10 +154,10 @@ function AddRuleForm({ onAdd, onCancel }: AddRuleFormProps) {
         className="flex-1 min-w-0 rounded border border-border bg-background px-2 py-1 text-[10px] font-mono text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30"
       />
       <Button type="submit" variant="ghost" size="icon-sm" disabled={!value.trim()}>
-        <HugeiconsIcon icon={Add01Icon} className="h-3 w-3" />
+        <Plus size={12} />
       </Button>
       <Button type="button" variant="ghost" size="icon-sm" onClick={onCancel}>
-        <HugeiconsIcon icon={Cancel01Icon} className="h-3 w-3" />
+        <X size={12} />
       </Button>
     </form>
   );
@@ -223,11 +222,11 @@ function ScopeSection({ scope, allowRules, denyRules, projectPath, onRefresh }: 
         onClick={() => setCollapsed((v) => !v)}
         className={`flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-muted/30 ${meta.bgColor}`}
       >
-        <HugeiconsIcon
-          icon={collapsed ? ArrowRight01Icon : ArrowDown01Icon}
-          className="h-3 w-3 text-muted-foreground shrink-0"
-        />
-        <HugeiconsIcon icon={meta.icon} className={`h-3.5 w-3.5 shrink-0 ${meta.color}`} />
+        {collapsed
+          ? <CaretRight size={12} className="text-muted-foreground shrink-0" />
+          : <CaretDown size={12} className="text-muted-foreground shrink-0" />
+        }
+        <meta.icon size={14} className={`shrink-0 ${meta.color}`} />
         <div className="flex-1 min-w-0">
           <span className="text-[10px] font-semibold text-foreground/80">{meta.label}</span>
           <span className="ml-1.5 text-[9px] text-muted-foreground/50">{total} rules</span>
@@ -311,14 +310,14 @@ function ScopeSection({ scope, allowRules, denyRules, projectPath, onRefresh }: 
                 onClick={() => setAddingAllow(true)}
                 className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] text-green-600 dark:text-green-400 hover:bg-green-500/10 transition-colors"
               >
-                <HugeiconsIcon icon={Add01Icon} className="h-2.5 w-2.5" />
+                <Plus size={10} />
                 Allow
               </button>
               <button
                 onClick={() => setAddingDeny(true)}
                 className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors"
               >
-                <HugeiconsIcon icon={Add01Icon} className="h-2.5 w-2.5" />
+                <Plus size={10} />
                 Deny
               </button>
             </div>
@@ -437,7 +436,7 @@ export function PermissionsPanel({ sessionId, workingDirectory }: PermissionsPan
       {/* ── Header with refresh ── */}
       <div className="flex items-center justify-between px-0.5">
         <div className="flex items-center gap-1.5">
-          <HugeiconsIcon icon={InformationCircleIcon} className="h-3.5 w-3.5 text-muted-foreground" />
+          <Info size={14} className="text-muted-foreground" />
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Permission Rules
           </span>
@@ -448,7 +447,7 @@ export function PermissionsPanel({ sessionId, workingDirectory }: PermissionsPan
           title="Refresh all rules"
           className="h-4 w-4 text-muted-foreground/50 hover:text-muted-foreground transition-colors disabled:opacity-30"
         >
-          <HugeiconsIcon icon={RefreshIcon} className={`h-3 w-3 ${loadingRules ? "animate-spin" : ""}`} />
+          <ArrowClockwise size={12} className={loadingRules ? "animate-spin" : ""} />
         </button>
       </div>
 
@@ -516,7 +515,7 @@ export function PermissionsPanel({ sessionId, workingDirectory }: PermissionsPan
       {grantedOnceTools.length > 0 && (
         <div className="rounded-md border border-blue-500/20 overflow-hidden">
           <div className="flex items-center gap-2 px-2.5 py-2 bg-blue-500/5">
-            <HugeiconsIcon icon={Timer01Icon} className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+            <Clock size={14} className="text-blue-500 shrink-0" />
             <div className="flex-1 min-w-0">
               <span className="text-[10px] font-semibold text-foreground/80">This Session</span>
               <span className="ml-1.5 text-[9px] text-muted-foreground/50">
@@ -547,7 +546,7 @@ export function PermissionsPanel({ sessionId, workingDirectory }: PermissionsPan
                   className="opacity-0 group-hover:opacity-100 transition-opacity h-4 w-4 shrink-0 text-muted-foreground/50 hover:text-destructive"
                   title={`Revoke ${tool}`}
                 >
-                  <HugeiconsIcon icon={Cancel01Icon} className="h-3 w-3" />
+                  <X size={12} />
                 </button>
               </div>
             ))}
@@ -561,7 +560,7 @@ export function PermissionsPanel({ sessionId, workingDirectory }: PermissionsPan
 
       {/* ── Legend ── */}
       <div className="flex items-start gap-1 px-0.5 pt-1">
-        <HugeiconsIcon icon={InformationCircleIcon} className="h-3 w-3 shrink-0 text-muted-foreground/30 mt-0.5" />
+        <Info size={12} className="shrink-0 text-muted-foreground/30 mt-0.5" />
         <div className="text-[9px] text-muted-foreground/40 leading-tight space-y-0.5">
           <p>
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500/60 mr-0.5 align-middle" />

@@ -1,13 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  UserGroupIcon,
-  Loading02Icon,
-  CheckmarkCircle02Icon,
-  CancelCircleIcon,
-} from "@hugeicons/core-free-icons";
+import { UserCircle, SpinnerGap, CheckCircle, XCircle } from "@/components/ui/icon";
 import {
   AgentOutputWindow,
   getAgentIdParts,
@@ -40,7 +34,7 @@ export function AgentTeamDashboard() {
   if (agents.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
-        <HugeiconsIcon icon={UserGroupIcon} className="h-10 w-10 opacity-20" />
+        <UserCircle size={40} className="opacity-20" />
         <p className="text-sm">No active team members</p>
       </div>
     );
@@ -52,10 +46,7 @@ export function AgentTeamDashboard() {
       <div className="shrink-0 border-b border-border/40 bg-background">
         <div className="flex items-center gap-3 px-4 py-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10">
-            <HugeiconsIcon
-              icon={UserGroupIcon}
-              className="h-4 w-4 text-primary"
-            />
+            <UserCircle size={16} className="text-primary" />
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-xs font-bold text-foreground truncate">
@@ -67,28 +58,19 @@ export function AgentTeamDashboard() {
               </span>
               {runningCount > 0 && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-blue-400">
-                  <HugeiconsIcon
-                    icon={Loading02Icon}
-                    className="h-2.5 w-2.5 animate-spin"
-                  />
+                  <SpinnerGap size={10} className="animate-spin" />
                   {runningCount} running
                 </span>
               )}
               {completedCount > 0 && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400">
-                  <HugeiconsIcon
-                    icon={CheckmarkCircle02Icon}
-                    className="h-2.5 w-2.5"
-                  />
+                  <CheckCircle size={10} />
                   {completedCount} done
                 </span>
               )}
               {failedCount > 0 && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-red-400">
-                  <HugeiconsIcon
-                    icon={CancelCircleIcon}
-                    className="h-2.5 w-2.5"
-                  />
+                  <XCircle size={10} />
                   {failedCount} failed
                 </span>
               )}

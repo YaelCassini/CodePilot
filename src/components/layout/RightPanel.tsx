@@ -1,8 +1,6 @@
 "use client";
 
 import { useCallback, useState, useEffect, useContext } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { StructureFolderIcon, PanelRightCloseIcon } from "@hugeicons/core-free-icons";
 import { TreeStructure, SidebarSimple } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import {

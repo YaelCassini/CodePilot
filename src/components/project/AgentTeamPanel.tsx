@@ -1,15 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  Loading02Icon,
-  CheckmarkCircle02Icon,
-  CancelCircleIcon,
-  AiBrain01Icon,
-} from "@hugeicons/core-free-icons";
+import { CaretDown, CaretRight, SpinnerGap, CheckCircle, XCircle, Brain } from "@/components/ui/icon";
+import type { Icon } from "@/components/ui/icon";
 import { subscribe, getSnapshot } from "@/lib/stream-session-manager";
 import { ToolCallBlock } from "@/components/chat/ToolCallBlock";
 import { useTranscript, pairTools, formatDuration } from "@/lib/agent-transcript";
@@ -81,7 +74,7 @@ function TranscriptView({ agent }: TranscriptViewProps) {
       {/* Loading / empty states */}
       {loading && !hasContent && (
         <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground">
-          <HugeiconsIcon icon={Loading02Icon} className="h-3 w-3 animate-spin" />
+          <SpinnerGap size={12} className="animate-spin" />
           {isRunning ? "Waiting for output…" : "Loading transcript…"}
         </div>
       )}
@@ -142,13 +135,13 @@ function AgentRow({ agent }: AgentRowProps) {
   const StatusIcon = () => {
     switch (agent.status) {
       case "running":
-        return <HugeiconsIcon icon={Loading02Icon} className="h-3 w-3 animate-spin text-blue-500 shrink-0" />;
+        return <SpinnerGap size={12} className="animate-spin text-blue-500 shrink-0" />;
       case "completed":
-        return <HugeiconsIcon icon={CheckmarkCircle02Icon} className="h-3 w-3 text-green-500 shrink-0" />;
+        return <CheckCircle size={12} className="text-green-500 shrink-0" />;
       case "failed":
-        return <HugeiconsIcon icon={CancelCircleIcon} className="h-3 w-3 text-red-500 shrink-0" />;
+        return <XCircle size={12} className="text-red-500 shrink-0" />;
       case "stopped":
-        return <HugeiconsIcon icon={CancelCircleIcon} className="h-3 w-3 text-yellow-500 shrink-0" />;
+        return <XCircle size={12} className="text-yellow-500 shrink-0" />;
       default:
         return <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground shrink-0" />;
     }
@@ -166,14 +159,14 @@ function AgentRow({ agent }: AgentRowProps) {
         <span className="shrink-0 text-muted-foreground w-3">
           {canExpand ? (
             expanded
-              ? <HugeiconsIcon icon={ArrowDown01Icon} className="h-3 w-3" />
-              : <HugeiconsIcon icon={ArrowRight01Icon} className="h-3 w-3" />
+              ? <CaretDown size={12} />
+              : <CaretRight size={12} />
           ) : null}
         </span>
 
         <StatusIcon />
 
-        <HugeiconsIcon icon={AiBrain01Icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+        <Brain size={14} className="shrink-0 text-muted-foreground/70" />
 
         <span className="flex-1 truncate text-xs font-medium text-foreground/80">
           {agent.agentType}

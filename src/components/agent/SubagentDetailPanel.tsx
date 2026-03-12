@@ -1,14 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Cancel01Icon,
-  Loading02Icon,
-  CheckmarkCircle02Icon,
-  CancelCircleIcon,
-  UserIcon,
-} from "@hugeicons/core-free-icons";
+import { X, SpinnerGap, CheckCircle, XCircle, UserCircle } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { ToolCallBlock } from "@/components/chat/ToolCallBlock";
 import {
@@ -83,10 +76,7 @@ function AgentDetailView({ agent }: { agent: AgentInfo }) {
 
         {loading && !hasContent && (
           <div className="flex items-center gap-2 px-2 py-6 text-xs text-muted-foreground justify-center">
-            <HugeiconsIcon
-              icon={Loading02Icon}
-              className="h-4 w-4 animate-spin"
-            />
+            <SpinnerGap size={16} className="animate-spin" />
             {isRunning ? "Waiting for output…" : "Loading transcript…"}
           </div>
         )}
@@ -116,25 +106,25 @@ function AgentDetailView({ agent }: { agent: AgentInfo }) {
 
 const STATUS_CONF = {
   running: {
-    icon: Loading02Icon,
+    icon: SpinnerGap,
     color: "text-blue-400",
     bg: "bg-blue-500/10",
     animate: true,
   },
   completed: {
-    icon: CheckmarkCircle02Icon,
+    icon: CheckCircle,
     color: "text-emerald-400",
     bg: "bg-emerald-500/10",
     animate: false,
   },
   failed: {
-    icon: CancelCircleIcon,
+    icon: XCircle,
     color: "text-red-400",
     bg: "bg-red-500/10",
     animate: false,
   },
   stopped: {
-    icon: CancelCircleIcon,
+    icon: XCircle,
     color: "text-amber-400",
     bg: "bg-amber-500/10",
     animate: false,
@@ -188,10 +178,7 @@ export function SubagentDetailPanel({ width }: SubagentDetailPanelProps) {
       {/* ── Title bar ── */}
       <div className="flex h-12 mt-5 shrink-0 items-center justify-between px-3 border-b border-border/30">
         <div className="flex items-center gap-2">
-          <HugeiconsIcon
-            icon={UserIcon}
-            className="h-4 w-4 text-muted-foreground"
-          />
+          <UserCircle size={16} className="text-muted-foreground" />
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Member Output
           </span>
@@ -202,7 +189,7 @@ export function SubagentDetailPanel({ width }: SubagentDetailPanelProps) {
             size="icon-sm"
             onClick={() => setSelectedAgentId(null)}
           >
-            <HugeiconsIcon icon={Cancel01Icon} className="h-3.5 w-3.5" />
+            <X size={14} />
           </Button>
         )}
       </div>
@@ -219,9 +206,9 @@ export function SubagentDetailPanel({ width }: SubagentDetailPanelProps) {
                   <span
                     className={`inline-flex items-center justify-center h-6 w-6 rounded-md ${c.bg}`}
                   >
-                    <HugeiconsIcon
-                      icon={c.icon}
-                      className={`h-3.5 w-3.5 ${c.color} ${c.animate ? "animate-spin" : ""}`}
+                    <c.icon
+                      size={14}
+                      className={`${c.color} ${c.animate ? "animate-spin" : ""}`}
                     />
                   </span>
                 );
@@ -264,9 +251,9 @@ export function SubagentDetailPanel({ width }: SubagentDetailPanelProps) {
                         : "text-muted-foreground hover:bg-muted/40",
                     ].join(" ")}
                   >
-                    <HugeiconsIcon
-                      icon={c.icon}
-                      className={`h-3 w-3 ${c.color} ${c.animate ? "animate-spin" : ""}`}
+                    <c.icon
+                      size={12}
+                      className={`${c.color} ${c.animate ? "animate-spin" : ""}`}
                     />
                     {getAgentDisplayName(a)}
                   </button>
@@ -296,10 +283,7 @@ export function SubagentDetailPanel({ width }: SubagentDetailPanelProps) {
         </>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground px-6">
-          <HugeiconsIcon
-            icon={UserIcon}
-            className="h-8 w-8 opacity-15"
-          />
+          <UserCircle size={32} className="opacity-15" />
           <p className="text-xs text-center leading-relaxed">
             {agents.length > 0
               ? "Select a team member from the dashboard to view their output"

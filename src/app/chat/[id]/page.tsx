@@ -4,9 +4,7 @@ import { useEffect, useState, useRef, useCallback, use } from 'react';
 import Link from 'next/link';
 import type { Message, MessagesResponse, ChatSession } from '@/types';
 import { ChatView } from '@/components/chat/ChatView';
-import { HugeiconsIcon } from "@hugeicons/react";
-import { RefreshIcon } from "@hugeicons/core-free-icons";
-import { SpinnerGap, PencilSimple } from "@/components/ui/icon";
+import { SpinnerGap, PencilSimple, ArrowClockwise } from "@/components/ui/icon";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -297,9 +295,9 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
                   className="absolute right-4 p-1 rounded hover:bg-muted transition-colors disabled:opacity-50"
                   style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                 >
-                  <HugeiconsIcon
-                    icon={RefreshIcon}
-                    className={`h-3.5 w-3.5 text-muted-foreground ${isSyncing ? 'animate-spin' : ''}`}
+                  <ArrowClockwise
+                    size={14}
+                    className={`text-muted-foreground ${isSyncing ? 'animate-spin' : ''}`}
                   />
                 </button>
               </TooltipTrigger>

@@ -1,12 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Loading02Icon,
-  CheckmarkCircle02Icon,
-  CancelCircleIcon,
-} from "@hugeicons/core-free-icons";
+import { SpinnerGap, CheckCircle, XCircle } from "@/components/ui/icon";
+import type { Icon } from "@/components/ui/icon";
 import { ToolCallBlock } from "@/components/chat/ToolCallBlock";
 import {
   useTranscript,
@@ -46,30 +42,30 @@ export function getAgentIdParts(agent: AgentInfo): {
   return { teamName: null, displayId: agent.agentId };
 }
 
-const STATUS_CONFIG = {
+const STATUS_CONFIG: Record<string, { icon: Icon; color: string; dot: string; label: string; animate: boolean }> = {
   running: {
-    icon: Loading02Icon,
+    icon: SpinnerGap,
     color: "text-blue-400",
     dot: "bg-blue-500",
     label: "Running",
     animate: true,
   },
   completed: {
-    icon: CheckmarkCircle02Icon,
+    icon: CheckCircle,
     color: "text-emerald-400",
     dot: "bg-emerald-500",
     label: "Done",
     animate: false,
   },
   failed: {
-    icon: CancelCircleIcon,
+    icon: XCircle,
     color: "text-red-400",
     dot: "bg-red-500",
     label: "Failed",
     animate: false,
   },
   stopped: {
-    icon: CancelCircleIcon,
+    icon: XCircle,
     color: "text-amber-400",
     dot: "bg-amber-500",
     label: "Stopped",
@@ -158,9 +154,9 @@ export function AgentOutputWindow({
         <span
           className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${cfg.color} bg-current/10`}
         >
-          <HugeiconsIcon
-            icon={cfg.icon}
-            className={`h-2.5 w-2.5 ${cfg.animate ? "animate-spin" : ""}`}
+          <cfg.icon
+            size={10}
+            className={cfg.animate ? "animate-spin" : ""}
           />
           {cfg.label}
         </span>
@@ -207,9 +203,9 @@ export function AgentOutputWindow({
 
           {loading && !hasContent && (
             <div className="flex items-center gap-1.5 px-2 py-4 text-[11px] text-muted-foreground justify-center">
-              <HugeiconsIcon
-                icon={Loading02Icon}
-                className="h-3.5 w-3.5 animate-spin"
+              <SpinnerGap
+                size={14}
+                className="animate-spin"
               />
               {isRunning ? "Waiting for output…" : "Loading transcript…"}
             </div>
