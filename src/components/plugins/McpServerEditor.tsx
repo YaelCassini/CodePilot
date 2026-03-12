@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -13,8 +13,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ServerStack01Icon, Wifi01Icon, GlobeIcon, CodeIcon } from "@hugeicons/core-free-icons";
+import { HardDrives, WifiHigh, Globe, Code } from "@/components/ui/icon";
 import { useTranslation } from '@/hooks/useTranslation';
 import type { MCPServer } from '@/types';
 
@@ -162,7 +161,6 @@ export function McpServerEditor({
           ...(env ? { env } : {}),
         }
       : {
-          command: '',
           type: serverType,
           ...(url ? { url: url.trim() } : {}),
           ...(serverArgs.length > 0 ? { args: serverArgs } : {}),
@@ -238,7 +236,7 @@ export function McpServerEditor({
                 setError(null);
               }}
             >
-              <HugeiconsIcon icon={CodeIcon} className="h-3.5 w-3.5" />
+              <Code size={14} />
               {t('mcp.jsonEditTab')}
             </Button>
           </div>
@@ -269,15 +267,15 @@ export function McpServerEditor({
                 >
                   <TabsList className="w-full">
                     <TabsTrigger value="stdio" className="flex-1 gap-1.5">
-                      <HugeiconsIcon icon={ServerStack01Icon} className="h-3.5 w-3.5" />
+                      <HardDrives size={14} />
                       stdio
                     </TabsTrigger>
                     <TabsTrigger value="sse" className="flex-1 gap-1.5">
-                      <HugeiconsIcon icon={Wifi01Icon} className="h-3.5 w-3.5" />
+                      <WifiHigh size={14} />
                       SSE
                     </TabsTrigger>
                     <TabsTrigger value="http" className="flex-1 gap-1.5">
-                      <HugeiconsIcon icon={GlobeIcon} className="h-3.5 w-3.5" />
+                      <Globe size={14} />
                       HTTP
                     </TabsTrigger>
                   </TabsList>

@@ -5,7 +5,9 @@ import Link from 'next/link';
 import type { Message, MessagesResponse, ChatSession } from '@/types';
 import { ChatView } from '@/components/chat/ChatView';
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Loading02Icon, PencilEdit01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
+import { RefreshIcon } from "@hugeicons/core-free-icons";
+import { SpinnerGap, PencilSimple } from "@/components/ui/icon";
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePanel } from '@/hooks/usePanel';
@@ -25,6 +27,8 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   const [sessionModel, setSessionModel] = useState<string>('');
   const [sessionProviderId, setSessionProviderId] = useState<string>('');
   const [sessionMode, setSessionMode] = useState<string>('');
+  const [sessionInfoLoaded, setSessionInfoLoaded] = useState(false);
+  const [sessionPermissionProfile, setSessionPermissionProfile] = useState<'default' | 'full_access'>('default');
   const [projectName, setProjectName] = useState<string>('');
   const [sessionWorkingDir, setSessionWorkingDir] = useState<string>('');
   const [sessionSdkId, setSessionSdkId] = useState<string>('');
@@ -39,7 +43,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   const handleStartEditTitle = useCallback(() => {
     setEditTitle(sessionTitle || t('chat.newConversation'));
     setIsEditingTitle(true);
-  }, [sessionTitle]);
+  }, [sessionTitle, t]);
 
   const handleSaveTitle = useCallback(async () => {
     const trimmed = editTitle.trim();
@@ -111,6 +115,12 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   // Load session info and set working directory
   useEffect(() => {
     let cancelled = false;
+    // Clear stale state immediately so ChatView doesn't inherit previous session's values
+    setWorkingDirectory('');
+    setSessionModel('');
+    setSessionProviderId('');
+    setSessionMode('');
+    setSessionInfoLoaded(false);
 
     async function loadSession() {
       try {
@@ -133,17 +143,20 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           setSessionModel(data.session.model || '');
           setSessionProviderId(data.session.provider_id || '');
           setSessionMode(data.session.mode || 'code');
+          setSessionPermissionProfile(data.session.permission_profile || 'default');
           setProjectName(data.session.project_name || '');
           setSessionSdkId(data.session.sdk_session_id || '');
         }
       } catch {
         // Session info load failed - panel will still work without directory
+      } finally {
+        if (!cancelled) setSessionInfoLoaded(true);
       }
     }
 
     loadSession();
     return () => { cancelled = true; };
-  }, [id, setWorkingDirectory, setSessionId, setPanelSessionTitle, setPanelOpen]);
+  }, [id, setWorkingDirectory, setSessionId, setPanelSessionTitle, setPanelOpen, t]);
 
   useEffect(() => {
     // Reset state when switching sessions
@@ -182,10 +195,10 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
     return () => { cancelled = true; };
   }, [id]);
 
-  if (loading) {
+  if (loading || !sessionInfoLoaded) {
     return (
       <div className="flex h-full items-center justify-center">
-        <HugeiconsIcon icon={Loading02Icon} className="h-8 w-8 animate-spin text-muted-foreground" />
+        <SpinnerGap size={32} className="animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -215,8 +228,10 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
             <>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
-                    className="text-xs text-muted-foreground shrink-0 hover:text-foreground transition-colors cursor-pointer"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground shrink-0 hover:text-foreground transition-colors h-auto p-0"
                     style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                     onClick={() => {
                       if (sessionWorkingDir) {
@@ -233,7 +248,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
                     }}
                   >
                     {projectName}
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p className="text-xs break-all">{sessionWorkingDir || projectName}</p>
@@ -262,12 +277,14 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
               <h2 className="text-sm font-medium text-foreground/80 truncate">
                 {sessionTitle}
               </h2>
-              <button
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={handleStartEditTitle}
-                className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-0.5 rounded hover:bg-muted"
+                className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 h-auto w-auto p-0.5"
               >
-                <HugeiconsIcon icon={PencilEdit01Icon} className="h-3 w-3 text-muted-foreground" />
-              </button>
+                <PencilSimple size={12} className="text-muted-foreground" />
+              </Button>
             </div>
           )}
           {/* Sync button — only visible for sessions imported from Claude Code CLI */}
@@ -293,7 +310,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           )}
         </div>
       )}
-      <ChatView key={`${id}-${syncKey}`} sessionId={id} initialMessages={messages} initialHasMore={hasMore} modelName={sessionModel} initialMode={sessionMode} providerId={sessionProviderId} />
+      <ChatView key={`${id}-${syncKey}`} sessionId={id} initialMessages={messages} initialHasMore={hasMore} modelName={sessionModel} initialMode={sessionMode} providerId={sessionProviderId} initialPermissionProfile={sessionPermissionProfile} />
     </div>
   );
 }

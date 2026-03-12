@@ -1,12 +1,13 @@
 "use client";
 
-import type { ComponentProps, CSSProperties, HTMLAttributes } from "react";
+import type { ComponentProps, CSSProperties, HTMLAttributes, ReactNode } from "react";
 import type {
   BundledLanguage,
   BundledTheme,
   HighlighterGeneric,
   ThemedToken,
 } from "shiki";
+import { bundledLanguages } from "shiki";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -17,8 +18,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { useThemeFamily } from "@/lib/theme/context";
+import { resolveShikiTheme, resolveShikiThemes, SHIKI_DEFAULT_LIGHT, SHIKI_DEFAULT_DARK } from "@/lib/theme/code-themes";
+import type { Icon } from "@phosphor-icons/react";
 import {
+  Check,
+  Copy,
+  CaretDown,
+  CaretUp,
+  FileCode,
+  Terminal,
+  Code,
+  File,
+  Hash,
+} from "@phosphor-icons/react";
+import {
+  createElement,
   createContext,
   memo,
   useCallback,
@@ -30,12 +45,30 @@ import {
 } from "react";
 import { createHighlighter } from "shiki";
 
+// ── Collapse/expand constants ──────────────────────────────────────────
+const COLLAPSE_THRESHOLD = 20;
+const VISIBLE_LINES = 10;
+
+// ── Terminal language detection ────────────────────────────────────────
+const TERMINAL_LANGUAGES = new Set(["bash", "sh", "shell", "terminal", "zsh", "console"]);
+
+// ── Language icon mapping ──────────────────────────────────────────────
+function getLanguageIcon(language: string): Icon {
+  const lower = language.toLowerCase();
+  if (TERMINAL_LANGUAGES.has(lower)) return Terminal;
+  if (["typescript", "tsx", "javascript", "jsx"].includes(lower)) return Code;
+  if (["json", "yaml", "yml", "toml", "xml"].includes(lower)) return Code;
+  if (["python", "ruby", "go", "rust", "java", "c", "cpp"].includes(lower)) return Hash;
+  if (["css", "scss", "html"].includes(lower)) return File;
+  return FileCode;
+}
+
 // Shiki uses bitflags for font styles: 1=italic, 2=bold, 4=underline
 // biome-ignore lint/suspicious/noBitwiseOperators: shiki bitflag check
-// eslint-disable-next-line no-bitwise -- shiki bitflag check
+ 
 const isItalic = (fontStyle: number | undefined) => fontStyle && fontStyle & 1;
 // biome-ignore lint/suspicious/noBitwiseOperators: shiki bitflag check
-// eslint-disable-next-line no-bitwise -- shiki bitflag check
+ 
 // oxlint-disable-next-line eslint(no-bitwise)
 const isBold = (fontStyle: number | undefined) => fontStyle && fontStyle & 2;
 const isUnderline = (fontStyle: number | undefined) =>
@@ -101,8 +134,9 @@ const LineSpan = ({
 // Types
 type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   code: string;
-  language: BundledLanguage;
+  language: BundledLanguage | (string & {});
   showLineNumbers?: boolean;
+  filename?: string;
 };
 
 interface TokenizedCode {
@@ -113,14 +147,16 @@ interface TokenizedCode {
 
 interface CodeBlockContextType {
   code: string;
+  language: string;
 }
 
 // Context
 const CodeBlockContext = createContext<CodeBlockContextType>({
   code: "",
+  language: "text",
 });
 
-// Highlighter cache (singleton per language)
+// Highlighter cache keyed by "lang:lightTheme:darkTheme"
 const highlighterCache = new Map<
   string,
   Promise<HighlighterGeneric<BundledLanguage, BundledTheme>>
@@ -132,30 +168,45 @@ const tokensCache = new Map<string, TokenizedCode>();
 // Subscribers for async token updates
 const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>();
 
-const getTokensCacheKey = (code: string, language: BundledLanguage) => {
+const getTokensCacheKey = (code: string, language: BundledLanguage, lightTheme: BundledTheme, darkTheme: BundledTheme) => {
   const start = code.slice(0, 100);
   const end = code.length > 100 ? code.slice(-100) : "";
-  return `${language}:${code.length}:${start}:${end}`;
+  return `${language}:${lightTheme}:${darkTheme}:${code.length}:${start}:${end}`;
 };
 
+const isBundledLanguage = (lang: string): lang is BundledLanguage =>
+  lang in bundledLanguages || lang === "text" || lang === "plaintext";
+
 const getHighlighter = (
-  language: BundledLanguage
+  language: BundledLanguage,
+  lightTheme: BundledTheme = SHIKI_DEFAULT_LIGHT,
+  darkTheme: BundledTheme = SHIKI_DEFAULT_DARK,
 ): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> => {
-  const cached = highlighterCache.get(language);
+  // Normalize unknown languages to "text" before hitting Shiki
+  const safeLang = isBundledLanguage(language) ? language : ("text" as BundledLanguage);
+  const cacheKey = `${safeLang}:${lightTheme}:${darkTheme}`;
+
+  const cached = highlighterCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
   const highlighterPromise = createHighlighter({
-    langs: [language],
-    themes: ["github-light", "github-dark"],
+    langs: [safeLang],
+    themes: [lightTheme, darkTheme],
   }).catch(() => {
-    // Language not supported by Shiki — fall back to plain text
-    highlighterCache.delete(language);
-    return getHighlighter("text" as BundledLanguage);
+    // Language or theme not supported — fall back to plain text + default themes.
+    // Using default themes avoids infinite retry if the *theme* was the problem.
+    highlighterCache.delete(cacheKey);
+    const useFallbackThemes =
+      lightTheme !== SHIKI_DEFAULT_LIGHT || darkTheme !== SHIKI_DEFAULT_DARK;
+    if (useFallbackThemes) {
+      return getHighlighter("text" as BundledLanguage, SHIKI_DEFAULT_LIGHT, SHIKI_DEFAULT_DARK);
+    }
+    return getHighlighter("text" as BundledLanguage, lightTheme, darkTheme);
   });
 
-  highlighterCache.set(language, highlighterPromise);
+  highlighterCache.set(cacheKey, highlighterPromise);
   return highlighterPromise;
 };
 
@@ -180,9 +231,11 @@ export const highlightCode = (
   code: string,
   language: BundledLanguage,
   // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-callbacks)
-  callback?: (result: TokenizedCode) => void
+  callback?: (result: TokenizedCode) => void,
+  lightTheme: BundledTheme = SHIKI_DEFAULT_LIGHT,
+  darkTheme: BundledTheme = SHIKI_DEFAULT_DARK,
 ): TokenizedCode | null => {
-  const tokensCacheKey = getTokensCacheKey(code, language);
+  const tokensCacheKey = getTokensCacheKey(code, language, lightTheme, darkTheme);
 
   // Return cached result if available
   const cached = tokensCache.get(tokensCacheKey);
@@ -199,7 +252,7 @@ export const highlightCode = (
   }
 
   // Start highlighting in background - fire-and-forget async pattern
-  getHighlighter(language)
+  getHighlighter(language, lightTheme, darkTheme)
     // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then)
     .then((highlighter) => {
       const availableLangs = highlighter.getLoadedLanguages();
@@ -208,8 +261,8 @@ export const highlightCode = (
       const result = highlighter.codeToTokens(code, {
         lang: langToUse,
         themes: {
-          dark: "github-dark",
-          light: "github-light",
+          dark: darkTheme,
+          light: lightTheme,
         },
       });
 
@@ -380,50 +433,151 @@ export const CodeBlockActions = ({
   </div>
 );
 
+/** Resolve Shiki theme pair from the current theme family. */
+function useShikiThemes(): { light: BundledTheme; dark: BundledTheme } {
+  const { family, families } = useThemeFamily();
+  const shikiTheme = resolveShikiTheme(families, family);
+  return resolveShikiThemes(shikiTheme);
+}
+
 export const CodeBlockContent = ({
   code,
   language,
   showLineNumbers = false,
+  collapsible = false,
+  maxCollapsedLines = VISIBLE_LINES,
 }: {
   code: string;
   language: BundledLanguage;
   showLineNumbers?: boolean;
+  collapsible?: boolean;
+  maxCollapsedLines?: number;
 }) => {
+  const { light: lightTheme, dark: darkTheme } = useShikiThemes();
+  const [expanded, setExpanded] = useState(false);
+  const codeContainerRef = useRef<HTMLDivElement>(null);
+  const [animatingHeight, setAnimatingHeight] = useState<string | undefined>(undefined);
+
+  const lines = useMemo(() => code.split("\n"), [code]);
+  const totalLines = lines.length;
+  const isCollapsible = collapsible && totalLines > COLLAPSE_THRESHOLD;
+
+  const displayCode = useMemo(() => {
+    if (!isCollapsible || expanded) return code;
+    return lines.slice(0, maxCollapsedLines).join("\n");
+  }, [code, lines, isCollapsible, expanded, maxCollapsedLines]);
+
   // Memoized raw tokens for immediate display
-  const rawTokens = useMemo(() => createRawTokens(code), [code]);
+  const rawTokens = useMemo(() => createRawTokens(displayCode), [displayCode]);
 
   // Try to get cached result synchronously, otherwise use raw tokens
   const syncTokenized = useMemo(
-    () => highlightCode(code, language) ?? rawTokens,
-    [code, language, rawTokens]
+    () => highlightCode(displayCode, language, undefined, lightTheme, darkTheme) ?? rawTokens,
+    [displayCode, language, rawTokens, lightTheme, darkTheme]
   );
 
-  // Track async highlighting results keyed by code+language to avoid stale state
+  // Track async highlighting results keyed by code+language+themes to avoid stale state
   const [asyncResult, setAsyncResult] = useState<{ key: string; tokens: TokenizedCode } | null>(null);
-  const resultKey = `${code}:${language}`;
+  const resultKey = `${displayCode}:${language}:${lightTheme}:${darkTheme}`;
 
   useEffect(() => {
     let cancelled = false;
 
     // Subscribe to async highlighting result
-    highlightCode(code, language, (result) => {
+    highlightCode(displayCode, language, (result) => {
       if (!cancelled) {
-        setAsyncResult({ key: `${code}:${language}`, tokens: result });
+        setAsyncResult({ key: `${displayCode}:${language}:${lightTheme}:${darkTheme}`, tokens: result });
       }
-    });
+    }, lightTheme, darkTheme);
 
     return () => {
       cancelled = true;
     };
-  }, [code, language]);
+  }, [displayCode, language, lightTheme, darkTheme]);
 
-  // Only use async result if it matches the current code+language
+  // Only use async result if it matches the current code+language+themes
   const tokenized = (asyncResult && asyncResult.key === resultKey) ? asyncResult.tokens : syncTokenized;
 
+  const isTerminal = TERMINAL_LANGUAGES.has(language.toLowerCase());
+
+  const handleToggleExpand = () => {
+    const container = codeContainerRef.current;
+    if (!container) {
+      setExpanded(!expanded);
+      return;
+    }
+    const currentHeight = container.scrollHeight;
+    if (!expanded) {
+      setAnimatingHeight(`${currentHeight}px`);
+      setExpanded(true);
+      requestAnimationFrame(() => {
+        const fullHeight = container.scrollHeight;
+        setAnimatingHeight(`${fullHeight}px`);
+        setTimeout(() => setAnimatingHeight(undefined), 300);
+      });
+    } else {
+      setAnimatingHeight(`${currentHeight}px`);
+      requestAnimationFrame(() => {
+        const collapsedH = maxCollapsedLines * 1.5 + 1.5;
+        setAnimatingHeight(`${collapsedH}rem`);
+        setTimeout(() => {
+          setExpanded(false);
+          setAnimatingHeight(undefined);
+        }, 300);
+      });
+    }
+  };
+
   return (
-    <div className="relative overflow-auto">
-      <CodeBlockBody showLineNumbers={showLineNumbers} tokenized={tokenized} />
-    </div>
+    <>
+      <div
+        ref={codeContainerRef}
+        className="relative transition-[max-height] duration-300 ease-in-out overflow-hidden"
+        style={{
+          maxHeight: animatingHeight ?? (!isCollapsible || expanded ? undefined : `${maxCollapsedLines * 1.5 + 1.5}rem`),
+        }}
+      >
+        <div className="relative overflow-auto">
+          <CodeBlockBody showLineNumbers={showLineNumbers} tokenized={tokenized} />
+        </div>
+
+        {/* Gradient overlay for collapsed state */}
+        {isCollapsible && !expanded && (
+          <div className={cn(
+            "absolute bottom-0 left-0 right-0 h-16 pointer-events-none",
+            isTerminal
+              ? "bg-gradient-to-t from-[#0a0a0a] to-transparent"
+              : "bg-gradient-to-t from-muted to-transparent"
+          )} />
+        )}
+      </div>
+
+      {/* Expand/Collapse button */}
+      {isCollapsible && (
+        <button
+          onClick={handleToggleExpand}
+          type="button"
+          className={cn(
+            "flex w-full items-center justify-center gap-1.5 py-1.5 text-xs transition-colors",
+            isTerminal
+              ? "bg-zinc-950 text-zinc-400 hover:text-zinc-200"
+              : "bg-muted text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {expanded ? (
+            <>
+              <CaretUp size={12} />
+              <span>Collapse</span>
+            </>
+          ) : (
+            <>
+              <CaretDown size={12} />
+              <span>Expand all {totalLines} lines</span>
+            </>
+          )}
+        </button>
+      )}
+    </>
   );
 };
 
@@ -431,23 +585,161 @@ export const CodeBlock = ({
   code,
   language,
   showLineNumbers = false,
+  filename,
   className,
   children,
   ...props
 }: CodeBlockProps) => {
-  const contextValue = useMemo(() => ({ code }), [code]);
+  const contextValue = useMemo(() => ({ code, language }), [code, language]);
+  const isTerminal = TERMINAL_LANGUAGES.has(language.toLowerCase());
+
+  // When children are provided, use the composable API (caller controls header).
+  // Otherwise, render a default header with language icon, copy, copy-as-markdown.
+  const hasCustomChildren = children != null;
 
   return (
     <CodeBlockContext.Provider value={contextValue}>
-      <CodeBlockContainer className={className} language={language} {...props}>
-        {children}
+      <CodeBlockContainer
+        className={cn(
+          hasCustomChildren ? undefined : "not-prose my-3",
+          isTerminal && !hasCustomChildren && "border-zinc-700/50",
+          className,
+        )}
+        language={language}
+        {...props}
+      >
+        {hasCustomChildren ? (
+          children
+        ) : (
+          <CodeBlockDefaultHeader
+            language={language}
+            filename={filename}
+            isTerminal={isTerminal}
+          />
+        )}
         <CodeBlockContent
           code={code}
-          language={language}
+          language={language as BundledLanguage}
           showLineNumbers={showLineNumbers}
+          collapsible={!hasCustomChildren}
         />
       </CodeBlockContainer>
     </CodeBlockContext.Provider>
+  );
+};
+
+/** Default header rendered when CodeBlock has no children (non-composable usage). */
+const CodeBlockDefaultHeader = ({
+  language,
+  filename,
+  isTerminal,
+}: {
+  language: string;
+  filename?: string;
+  isTerminal: boolean;
+}) => {
+  const { code: contextCode, language: contextLanguage } = useContext(CodeBlockContext);
+  const [copied, setCopied] = useState(false);
+  const [copiedMarkdown, setCopiedMarkdown] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(contextCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard not available
+    }
+  };
+
+  const handleCopyMarkdown = async () => {
+    try {
+      const markdown = `\`\`\`${contextLanguage}\n${contextCode}\n\`\`\``;
+      await navigator.clipboard.writeText(markdown);
+      setCopiedMarkdown(true);
+      setTimeout(() => setCopiedMarkdown(false), 2000);
+    } catch {
+      // clipboard not available
+    }
+  };
+
+  const langIcon = getLanguageIcon(language);
+
+  return (
+    <div className={cn(
+      "flex items-center justify-between px-4 py-1.5 text-xs border-b",
+      isTerminal
+        ? "bg-zinc-950 text-zinc-400"
+        : "bg-muted text-muted-foreground"
+    )}>
+      <div className="flex items-center gap-2 min-w-0">
+        {createElement(langIcon, { size: 14, className: cn(
+          "shrink-0",
+          isTerminal ? "text-green-400" : "text-muted-foreground",
+        ) })}
+        {filename && (
+          <span className={cn(
+            "truncate font-medium",
+            isTerminal ? "text-zinc-300" : "text-foreground"
+          )}>{filename}</span>
+        )}
+        {filename && <span className="text-muted-foreground/50">|</span>}
+        <span className={cn(
+          "rounded px-1.5 py-0.5",
+          isTerminal
+            ? "bg-zinc-700/50 text-green-400"
+            : "bg-accent text-accent-foreground"
+        )}>{language.toUpperCase()}</span>
+      </div>
+      <div className="flex items-center gap-1 ml-2 shrink-0">
+        <button
+          onClick={handleCopy}
+          type="button"
+          className={cn(
+            "flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors",
+            isTerminal
+              ? "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent"
+          )}
+          title="Copy code"
+        >
+          {copied ? (
+            <>
+              <Check size={12} />
+              <span>Copied</span>
+            </>
+          ) : (
+            <>
+              <Copy size={12} />
+              <span>Copy</span>
+            </>
+          )}
+        </button>
+        <button
+          onClick={handleCopyMarkdown}
+          type="button"
+          className={cn(
+            "flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors",
+            isTerminal
+              ? "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent"
+          )}
+          title="Copy as Markdown"
+        >
+          {copiedMarkdown ? (
+            <>
+              <Check size={12} />
+              <span>Copied</span>
+            </>
+          ) : (
+            <>
+              <FileCode size={12} />
+              <span>Markdown</span>
+            </>
+          )}
+        </button>
+      </div>
+    </div>
   );
 };
 
@@ -497,7 +789,7 @@ export const CodeBlockCopyButton = ({
     []
   );
 
-  const Icon = isCopied ? CheckIcon : CopyIcon;
+  const Icon = isCopied ? Check : Copy;
 
   return (
     <Button
@@ -562,3 +854,12 @@ export type CodeBlockLanguageSelectorItemProps = ComponentProps<
 export const CodeBlockLanguageSelectorItem = (
   props: CodeBlockLanguageSelectorItemProps
 ) => <SelectItem {...props} />;
+
+// ── InlineCode ─────────────────────────────────────────────────────────
+export function InlineCode({ children }: { children: ReactNode }) {
+  return (
+    <code className="rounded bg-muted px-1.5 py-0.5 text-sm font-mono">
+      {children}
+    </code>
+  );
+}

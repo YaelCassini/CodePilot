@@ -1,22 +1,45 @@
 import { NextRequest } from 'next/server';
 import { streamClaude } from '@/lib/claude-client';
-import { addMessage, getMessages, getSession, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, getSetting, getProvider, getDefaultProviderId, acquireSessionLock, renewSessionLock, releaseSessionLock, setSessionRuntimeStatus, syncSdkTasks } from '@/lib/db';
+import { addMessage, getMessages, getSession, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, getSetting, acquireSessionLock, renewSessionLock, releaseSessionLock, setSessionRuntimeStatus, syncSdkTasks } from '@/lib/db';
+import { resolveProvider as resolveProviderUnified } from '@/lib/provider-resolver';
 import { notifySessionStart, notifySessionComplete, notifySessionError } from '@/lib/telegram-bot';
-import type { SendMessageRequest, SSEEvent, TokenUsage, MessageContentBlock, FileAttachment } from '@/types';
+import { extractCompletion } from '@/lib/onboarding-completion';
+import type { SendMessageRequest, SSEEvent, TokenUsage, MessageContentBlock, FileAttachment, ClaudeStreamOptions } from '@/types';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
+import type { MCPServerConfig } from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+/** Read MCP server configs from ~/.claude.json and ~/.claude/settings.json */
+function loadMcpServers(): Record<string, MCPServerConfig> | undefined {
+  try {
+    const readJson = (p: string): Record<string, unknown> => {
+      if (!fs.existsSync(p)) return {};
+      try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch { return {}; }
+    };
+    const userConfig = readJson(path.join(os.homedir(), '.claude.json'));
+    const settings = readJson(path.join(os.homedir(), '.claude', 'settings.json'));
+    const merged = {
+      ...((userConfig.mcpServers || {}) as Record<string, MCPServerConfig>),
+      ...((settings.mcpServers || {}) as Record<string, MCPServerConfig>),
+    };
+    return Object.keys(merged).length > 0 ? merged : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export async function POST(request: NextRequest) {
   let activeSessionId: string | undefined;
   let activeLockId: string | undefined;
 
   try {
-    const body: SendMessageRequest & { files?: FileAttachment[]; toolTimeout?: number; provider_id?: string; systemPromptAppend?: string } = await request.json();
-    const { session_id, content, model, mode, files, toolTimeout, provider_id, systemPromptAppend } = body;
+    const body: SendMessageRequest & { files?: FileAttachment[]; toolTimeout?: number; provider_id?: string; systemPromptAppend?: string; autoTrigger?: boolean; thinking?: unknown; effort?: string; enableFileCheckpointing?: boolean; displayOverride?: string } = await request.json();
+    const { session_id, content, model, mode, files, toolTimeout, provider_id, systemPromptAppend, autoTrigger, thinking, effort, enableFileCheckpointing, displayOverride } = body;
 
     console.log('[chat API] content length:', content.length, 'first 200 chars:', content.slice(0, 200));
     console.log('[chat API] systemPromptAppend:', systemPromptAppend ? `${systemPromptAppend.length} chars` : 'none');
@@ -58,29 +81,33 @@ export async function POST(request: NextRequest) {
     notifySessionStart(telegramNotifyOpts).catch(() => {});
 
     // Save user message — persist file metadata so attachments survive page reload
-    let savedContent = content;
+    // Skip saving for autoTrigger messages (invisible system triggers for assistant hooks)
+    // Use displayOverride for DB storage if provided (e.g. /skillName instead of expanded prompt)
+    let savedContent = displayOverride || content;
     let fileMeta: Array<{ id: string; name: string; type: string; size: number; filePath: string }> | undefined;
-    if (files && files.length > 0) {
-      const workDir = session.working_directory;
-      const uploadDir = path.join(workDir, '.codepilot-uploads');
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
+    if (!autoTrigger) {
+      if (files && files.length > 0) {
+        const workDir = session.working_directory;
+        const uploadDir = path.join(workDir, '.codepilot-uploads');
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        fileMeta = files.map((f) => {
+          const safeName = path.basename(f.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+          const filePath = path.join(uploadDir, `${Date.now()}-${safeName}`);
+          const buffer = Buffer.from(f.data, 'base64');
+          fs.writeFileSync(filePath, buffer);
+          return { id: f.id, name: f.name, type: f.type, size: buffer.length, filePath };
+        });
+        savedContent = `<!--files:${JSON.stringify(fileMeta)}-->${displayOverride || content}`;
       }
-      fileMeta = files.map((f) => {
-        const safeName = path.basename(f.name).replace(/[^a-zA-Z0-9._-]/g, '_');
-        const filePath = path.join(uploadDir, `${Date.now()}-${safeName}`);
-        const buffer = Buffer.from(f.data, 'base64');
-        fs.writeFileSync(filePath, buffer);
-        return { id: f.id, name: f.name, type: f.type, size: buffer.length, filePath };
-      });
-      savedContent = `<!--files:${JSON.stringify(fileMeta)}-->${content}`;
-    }
-    addMessage(session_id, 'user', savedContent);
+      addMessage(session_id, 'user', savedContent);
 
-    // Auto-generate title from first message if still default
-    if (session.title === 'New Chat') {
-      const title = content.slice(0, 50) + (content.length > 50 ? '...' : '');
-      updateSessionTitle(session_id, title);
+      // Auto-generate title from first message if still default
+      if (session.title === 'New Chat') {
+        const title = content.slice(0, 50) + (content.length > 50 ? '...' : '');
+        updateSessionTitle(session_id, title);
+      }
     }
 
     // Determine model: request override > session model > default setting
@@ -92,26 +119,15 @@ export async function POST(request: NextRequest) {
       updateSessionModel(session_id, effectiveModel);
     }
 
-    // Resolve provider: explicit provider_id > default_provider_id > environment variables
-    let resolvedProvider: import('@/types').ApiProvider | undefined;
+    // Resolve provider via unified resolver (same logic for chat, bridge, onboarding, etc.)
     const effectiveProviderId = provider_id || session.provider_id || '';
-    if (effectiveProviderId && effectiveProviderId !== 'env') {
-      resolvedProvider = getProvider(effectiveProviderId);
-      if (!resolvedProvider) {
-        // Requested provider not found, try default
-        const defaultId = getDefaultProviderId();
-        if (defaultId) {
-          resolvedProvider = getProvider(defaultId);
-        }
-      }
-    } else if (!effectiveProviderId) {
-      // No provider specified, try default
-      const defaultId = getDefaultProviderId();
-      if (defaultId) {
-        resolvedProvider = getProvider(defaultId);
-      }
-    }
-    // effectiveProviderId === 'env' → resolvedProvider stays undefined → uses env vars
+    const resolved = resolveProviderUnified({
+      providerId: effectiveProviderId || undefined,
+      sessionProviderId: session.provider_id || undefined,
+      model: model || undefined,
+      sessionModel: session.model || undefined,
+    });
+    const resolvedProvider = resolved.provider;
 
     const providerName = resolvedProvider?.name || '';
     if (providerName !== (session.provider_name || '')) {
@@ -164,10 +180,139 @@ export async function POST(request: NextRequest) {
         })
       : undefined;
 
+    // Load assistant workspace prompt if configured
+    let workspacePrompt = '';
+    let assistantProjectInstructions = '';
+    try {
+      const workspacePath = getSetting('assistant_workspace_path');
+      if (workspacePath) {
+        const { loadWorkspaceFiles, assembleWorkspacePrompt, loadState, needsDailyCheckIn } = await import('@/lib/assistant-workspace');
+
+        // Only inject workspace files for assistant project sessions
+        const sessionWd = session.working_directory || '';
+        const isAssistantProject = sessionWd === workspacePath;
+
+        if (isAssistantProject) {
+          // Incremental reindex BEFORE search so current turn sees latest content
+          try {
+            const { indexWorkspace } = await import('@/lib/workspace-indexer');
+            indexWorkspace(workspacePath);
+          } catch {
+            // indexer not available, skip
+          }
+
+          const files = loadWorkspaceFiles(workspacePath);
+
+          // Retrieval: search workspace index for relevant context
+          let retrievalResults: import('@/types').SearchResult[] | undefined;
+          try {
+            const { searchWorkspace, updateHotset } = await import('@/lib/workspace-retrieval');
+            if (content.length > 10) {
+              retrievalResults = searchWorkspace(workspacePath, content, { limit: 5 });
+              if (retrievalResults.length > 0) {
+                updateHotset(workspacePath, retrievalResults.map(r => r.path));
+              }
+            }
+          } catch {
+            // retrieval module not available, skip
+          }
+
+          workspacePrompt = assembleWorkspacePrompt(files, retrievalResults);
+
+          const state = loadState(workspacePath);
+
+          if (!state.onboardingComplete) {
+            // First-time onboarding: instruct AI to ask onboarding questions
+            assistantProjectInstructions = `<assistant-project-task type="onboarding">
+You are now in the assistant workspace onboarding session. Your task is to interview the user to build their profile.
+
+Ask the following 13 questions ONE AT A TIME. Wait for the user's answer before asking the next question. Be conversational and friendly.
+
+1. How should I address you?
+2. What name should I use for myself?
+3. Do you prefer "concise and direct" or "detailed explanations"?
+4. Do you prefer "minimal interruptions" or "proactive suggestions"?
+5. What are your three hard boundaries?
+6. What are your three most important current goals?
+7. Do you prefer output as "lists", "reports", or "conversation summaries"?
+8. What information may be written to long-term memory?
+9. What information must never be written to long-term memory?
+10. What three things should I do first when entering a project?
+11. How do you organize your materials? (by project / time / topic / mixed)
+12. Where should new information go by default?
+13. How should completed tasks be archived?
+
+After the user answers the LAST question (Q13), you MUST immediately output the completion block below. Do NOT wait for the user to say anything else. Do NOT ask for confirmation. Just output the block right after your response to Q13.
+
+CRITICAL FORMATTING RULES for the completion block:
+- Each value must be a single line (replace any newlines with spaces)
+- Escape all double quotes inside values with backslash: \\"
+- Do NOT use single quotes for JSON keys or values
+- Do NOT add trailing commas
+- The JSON must be on a SINGLE line
+
+\`\`\`onboarding-complete
+{"q1":"answer1","q2":"answer2","q3":"answer3","q4":"answer4","q5":"answer5","q6":"answer6","q7":"answer7","q8":"answer8","q9":"answer9","q10":"answer10","q11":"answer11","q12":"answer12","q13":"answer13"}
+\`\`\`
+
+After outputting the completion block, tell the user that the setup is complete and the system is now initializing their workspace. Keep this message brief and friendly.
+
+Do NOT try to write files yourself. The system will automatically generate soul.md, user.md, claude.md, memory.md, config.json, and taxonomy.json from your collected answers.
+
+Start by greeting the user and asking the first question.
+</assistant-project-task>`;
+          } else if (needsDailyCheckIn(state)) {
+            // Daily check-in: instruct AI to ask 3 quick questions
+            assistantProjectInstructions = `<assistant-project-task type="daily-checkin">
+You are now in the assistant workspace daily check-in session. Ask the user these 3 questions ONE AT A TIME:
+
+1. What did you work on or accomplish today?
+2. Any changes to your current priorities or goals?
+3. Anything you'd like me to remember going forward?
+
+After collecting all 3 answers, output a summary in exactly this format:
+
+\`\`\`checkin-complete
+{"q1":"answer1","q2":"answer2","q3":"answer3"}
+\`\`\`
+
+Do NOT try to write files yourself. The system will automatically write a daily memory entry and update user.md from your collected answers.
+
+Start by greeting the user and asking the first question.
+</assistant-project-task>`;
+          }
+
+        }
+      }
+    } catch (e) {
+      console.warn('[chat API] Failed to load assistant workspace:', e);
+    }
+
     // Append per-request system prompt (e.g. skill injection for image generation)
     let finalSystemPrompt = systemPromptOverride || session.system_prompt || undefined;
     if (systemPromptAppend) {
       finalSystemPrompt = (finalSystemPrompt || '') + '\n\n' + systemPromptAppend;
+    }
+
+    // Workspace prompt goes first (base personality), session prompt after (task override)
+    if (workspacePrompt) {
+      finalSystemPrompt = workspacePrompt + '\n\n' + (finalSystemPrompt || '');
+    }
+
+    // Assistant project instructions go after workspace prompt
+    if (assistantProjectInstructions) {
+      finalSystemPrompt = (finalSystemPrompt || '') + '\n\n' + assistantProjectInstructions;
+    }
+
+    // Inject available CLI tools context (best-effort, non-blocking)
+    try {
+      const { buildCliToolsContext } = await import('@/lib/cli-tools-context');
+      const cliToolsCtx = await buildCliToolsContext();
+      if (cliToolsCtx) {
+        finalSystemPrompt = (finalSystemPrompt || '') + '\n\n' + cliToolsCtx;
+      }
+    } catch {
+      // CLI tools context injection failed — don't block chat
     }
 
     // Load recent conversation history from DB as fallback context.
@@ -179,6 +324,10 @@ export async function POST(request: NextRequest) {
       role: m.role as 'user' | 'assistant',
       content: m.content,
     }));
+
+    // Load MCP servers from Claude config files so the SDK knows about them
+    // even when settingSources skips 'user' (custom provider scenario).
+    const mcpServers = loadMcpServers();
 
     // Stream Claude response, using SDK session ID for resume if available
     console.log('[chat API] streamClaude params:', {
@@ -192,7 +341,7 @@ export async function POST(request: NextRequest) {
       prompt: content,
       sessionId: session_id,
       sdkSessionId: session.sdk_session_id || undefined,
-      model: effectiveModel,
+      model: resolved.upstreamModel || resolved.model || effectiveModel,
       systemPrompt: finalSystemPrompt,
       workingDirectory: session.sdk_cwd || session.working_directory || undefined,
       abortController,
@@ -201,9 +350,15 @@ export async function POST(request: NextRequest) {
       imageAgentMode: !!systemPromptAppend,
       toolTimeoutSeconds: toolTimeout || 300,
       provider: resolvedProvider,
+      providerId: effectiveProviderId || undefined,
+      sessionProviderId: session.provider_id || undefined,
+      mcpServers,
       conversationHistory: historyMsgs,
-      // Tool permissions are managed by claude-internal via settings.local.json.
-      // SDK loads them automatically through settingSources. No GUI-side merging needed.
+      bypassPermissions: session.permission_profile === 'full_access',
+      thinking: thinking as ClaudeStreamOptions['thinking'],
+      effort: effort as ClaudeStreamOptions['effort'],
+      enableFileCheckpointing: enableFileCheckpointing ?? (effectiveMode === 'code'),
+      autoTrigger: !!autoTrigger,
       onRuntimeStatusChange: (status: string) => {
         try { setSessionRuntimeStatus(session_id, status); } catch { /* best effort */ }
       },
@@ -422,6 +577,27 @@ async function collectStreamResponse(
       }
     }
   } finally {
+    // ── Server-side completion detection (reliable path) ──
+    // After persisting the assistant message, check for onboarding/checkin
+    // fences and process them directly on the server. This ensures completion
+    // is captured even if the frontend misses it (page refresh, parse failure, etc.).
+    try {
+      const fullText = contentBlocks
+        .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
+      const completion = extractCompletion(fullText);
+      if (completion) {
+        const workspacePath = getSetting('assistant_workspace_path');
+        const session = getSession(sessionId);
+        if (workspacePath && session && session.working_directory === workspacePath) {
+          await processCompletionServerSide(completion, workspacePath, sessionId);
+        }
+      }
+    } catch (e) {
+      console.error('[chat API] Server-side completion detection failed:', e);
+    }
+
     // Telegram notifications: completion or error (fire-and-forget)
     if (hasError) {
       notifySessionError(errorMessage, telegramOpts).catch(() => {});
@@ -435,5 +611,49 @@ async function collectStreamResponse(
       notifySessionComplete(textSummary || undefined, telegramOpts).catch(() => {});
     }
     onComplete?.();
+  }
+}
+
+/**
+ * Process a detected onboarding/checkin completion on the server side.
+ * Calls the shared processor functions directly — no HTTP round-trip needed.
+ *
+ * Both processors are internally idempotent:
+ * - processOnboarding checks state.onboardingComplete
+ * - processCheckin checks state.lastCheckInDate === today
+ */
+async function processCompletionServerSide(
+  completion: import('@/lib/onboarding-completion').ExtractedCompletion,
+  _workspacePath: string,
+  sessionId: string,
+): Promise<void> {
+  try {
+    if (completion.type === 'onboarding') {
+      const { processOnboarding } = await import('@/lib/onboarding-processor');
+      console.log('[chat API] Server-side onboarding completion detected');
+      await processOnboarding(completion.answers, sessionId);
+      console.log('[chat API] Server-side onboarding completion succeeded');
+    } else if (completion.type === 'checkin') {
+      const { processCheckin } = await import('@/lib/checkin-processor');
+      console.log('[chat API] Server-side checkin completion detected');
+      await processCheckin(completion.answers, sessionId);
+      console.log('[chat API] Server-side checkin completion succeeded');
+    }
+
+    // Clear hookTriggeredSessionId directly (no HTTP needed)
+    try {
+      const { loadState, saveState } = await import('@/lib/assistant-workspace');
+      const { getSetting: getSettingDirect } = await import('@/lib/db');
+      const wsPath = getSettingDirect('assistant_workspace_path');
+      if (wsPath) {
+        const state = loadState(wsPath);
+        state.hookTriggeredSessionId = undefined;
+        saveState(wsPath, state);
+      }
+    } catch {
+      // Best effort
+    }
+  } catch (e) {
+    console.error(`[chat API] Server-side ${completion.type} processing failed:`, e);
   }
 }

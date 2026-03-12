@@ -8,8 +8,9 @@
 
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import type { ChannelBinding } from './types';
-import type { SSEEvent, TokenUsage, MessageContentBlock, FileAttachment } from '@/types';
+import type { SSEEvent, TokenUsage, MessageContentBlock, FileAttachment, MCPServerConfig } from '@/types';
 import { streamClaude } from '../claude-client';
 import {
   addMessage,
@@ -22,11 +23,29 @@ import {
   updateSessionModel,
   syncSdkTasks,
   getSession,
-  getProvider,
-  getDefaultProviderId,
   getSetting,
 } from '../db';
+import { resolveProvider as resolveProviderUnified } from '../provider-resolver';
 import crypto from 'crypto';
+
+/** Read MCP server configs from ~/.claude.json and ~/.claude/settings.json */
+function loadMcpServers(): Record<string, MCPServerConfig> | undefined {
+  try {
+    const readJson = (p: string): Record<string, unknown> => {
+      if (!fs.existsSync(p)) return {};
+      try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch { return {}; }
+    };
+    const userConfig = readJson(path.join(os.homedir(), '.claude.json'));
+    const settings = readJson(path.join(os.homedir(), '.claude', 'settings.json'));
+    const merged = {
+      ...((userConfig.mcpServers || {}) as Record<string, MCPServerConfig>),
+      ...((settings.mcpServers || {}) as Record<string, MCPServerConfig>),
+    };
+    return Object.keys(merged).length > 0 ? merged : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface PermissionRequestInfo {
   permissionRequestId: string;
@@ -101,6 +120,8 @@ export async function processMessage(
 
     // Save user message — persist file attachments to disk using the same
     // <!--files:JSON--> format as the desktop chat route, so the UI can render them.
+    // Also attach filePath to the file objects so streamClaude() can reuse
+    // on-disk copies (matching the desktop route behavior, preventing duplicate writes).
     let savedContent = text;
     if (files && files.length > 0) {
       const workDir = binding.workingDirectory || session?.working_directory || '';
@@ -115,6 +136,9 @@ export async function processMessage(
             const filePath = path.join(uploadDir, `${Date.now()}-${safeName}`);
             const buffer = Buffer.from(f.data, 'base64');
             fs.writeFileSync(filePath, buffer);
+            // Attach filePath to the original file object so streamClaude()
+            // can reference the on-disk copy via getUploadedFilePaths()
+            f.filePath = filePath;
             return { id: f.id, name: f.name, type: f.type, size: buffer.length, filePath };
           });
           savedContent = `<!--files:${JSON.stringify(fileMeta)}-->${text}`;
@@ -128,19 +152,16 @@ export async function processMessage(
     }
     addMessage(sessionId, 'user', savedContent);
 
-    // Resolve provider
-    let resolvedProvider: import('@/types').ApiProvider | undefined;
-    const providerId = session?.provider_id || '';
-    if (providerId && providerId !== 'env') {
-      resolvedProvider = getProvider(providerId);
-    }
-    if (!resolvedProvider) {
-      const defaultId = getDefaultProviderId();
-      if (defaultId) resolvedProvider = getProvider(defaultId);
-    }
+    // Resolve provider via unified resolver (same logic as desktop chat route)
+    const resolved = resolveProviderUnified({
+      sessionProviderId: session?.provider_id || undefined,
+      model: binding.model || undefined,
+      sessionModel: session?.model || undefined,
+    });
+    const resolvedProvider = resolved.provider;
 
-    // Effective model
-    const effectiveModel = binding.model || session?.model || getSetting('default_model') || undefined;
+    // Use upstream model from unified resolver (same chain as chat route)
+    const effectiveModel = resolved.upstreamModel || resolved.model || binding.model || session?.model || getSetting('default_model') || undefined;
 
     // Permission mode from binding mode
     let permissionMode: string;
@@ -149,6 +170,9 @@ export async function processMessage(
       case 'ask': permissionMode = 'default'; break;
       default: permissionMode = 'acceptEdits'; break;
     }
+
+    // Bypass permissions entirely when session has full_access profile
+    const bypassPermissions = session?.permission_profile === 'full_access';
 
     // Load conversation history for context
     const { messages: recentMsgs } = getMessages(sessionId, { limit: 50 });
@@ -166,6 +190,10 @@ export async function processMessage(
       }
     }
 
+    // Load MCP servers from Claude config files so the SDK has access to
+    // user-level MCP tools, matching the desktop chat route behavior.
+    const mcpServers = loadMcpServers();
+
     const stream = streamClaude({
       prompt: text,
       sessionId,
@@ -176,8 +204,11 @@ export async function processMessage(
       abortController,
       permissionMode,
       provider: resolvedProvider,
+      sessionProviderId: session?.provider_id || undefined,
+      mcpServers,
       conversationHistory: historyMsgs,
       files,
+      bypassPermissions,
       onRuntimeStatusChange: (status: string) => {
         try { setSessionRuntimeStatus(sessionId, status); } catch { /* best effort */ }
       },
@@ -363,7 +394,7 @@ async function consumeStream(
         : contentBlocks
             .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
             .map((b) => b.text)
-            .join('')
+            .join('\n\n')
             .trim();
 
       if (content) {
@@ -400,7 +431,7 @@ async function consumeStream(
         : contentBlocks
             .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
             .map((b) => b.text)
-            .join('')
+            .join('\n\n')
             .trim();
       if (content) {
         addMessage(sessionId, 'assistant', content);

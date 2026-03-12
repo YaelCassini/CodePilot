@@ -1,19 +1,29 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import type { Message, MessagesResponse, FileAttachment, SessionStreamSnapshot } from '@/types';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
+import { ChatComposerActionBar } from './ChatComposerActionBar';
+import { ChatPermissionSelector } from './ChatPermissionSelector';
+import { ContextUsageIndicator } from './ContextUsageIndicator';
+import { ImageGenToggle } from './ImageGenToggle';
+import { Button } from '@/components/ui/button';
 import { usePanel } from '@/hooks/usePanel';
+import { useTranslation } from '@/hooks/useTranslation';
+import { PermissionPrompt } from './PermissionPrompt';
 import { BatchExecutionDashboard, BatchContextSync } from './batch-image-gen';
-import { setLastGeneratedImages, transferPendingToMessage } from '@/lib/image-ref-store';
+import { setLastGeneratedImages } from '@/lib/image-ref-store';
+import { useChatCommands } from '@/hooks/useChatCommands';
+import { useAssistantTrigger } from '@/hooks/useAssistantTrigger';
+import { useStreamSubscription } from '@/hooks/useStreamSubscription';
 import {
   startStream,
   stopStream,
-  subscribe,
   getSnapshot,
+  getRewindPoints,
   respondToPermission,
-  clearSnapshot,
 } from '@/lib/stream-session-manager';
 
 interface ChatViewProps {
@@ -23,27 +33,39 @@ interface ChatViewProps {
   modelName?: string;
   initialMode?: string;
   providerId?: string;
+  initialPermissionProfile?: 'default' | 'full_access';
 }
 
-export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, initialMode, providerId }: ChatViewProps) {
-  const { setStreamingSessionId, workingDirectory, setWorkingDirectory, setPanelOpen, setPendingApprovalSessionId } = usePanel();
+export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, initialMode, providerId, initialPermissionProfile }: ChatViewProps) {
+  const { setStreamingSessionId, workingDirectory, setPendingApprovalSessionId } = usePanel();
+  const { t } = useTranslation();
+  const router = useRouter();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>(initialPermissionProfile || 'default');
+
+  // Workspace mismatch banner state
+  const [workspaceMismatchPath, setWorkspaceMismatchPath] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
   const [mode, setMode] = useState(initialMode || 'code');
-  const [currentModel, setCurrentModel] = useState(modelName || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet');
-  const [currentProviderId, setCurrentProviderId] = useState(providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
+  const [currentModel, setCurrentModel] = useState(() => modelName || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet');
+  const [currentProviderId, setCurrentProviderId] = useState(() => providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
+  const [selectedEffort, setSelectedEffort] = useState<string | undefined>(undefined);
+  const [thinkingMode, setThinkingMode] = useState<string>('adaptive');
 
-  // Sync model/provider when session data loads (props update after async fetch)
-  // Unconditional: when modelName is empty (old session with no saved model),
-  // fall back to localStorage or default to avoid stale values from previous session.
+  // Sync model/provider when session data loads
+  useEffect(() => { if (modelName) setCurrentModel(modelName); }, [modelName]);
+  useEffect(() => { if (providerId) setCurrentProviderId(providerId); }, [providerId]);
+
+  // Fetch thinking mode from app settings
   useEffect(() => {
-    setCurrentModel(modelName || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet');
-  }, [modelName]);
-  useEffect(() => {
-    setCurrentProviderId(providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
-  }, [providerId]);
+    fetch('/api/settings/app')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.settings?.thinking_mode) setThinkingMode(data.settings.thinking_mode); })
+      .catch(() => {});
+  }, []);
+  useEffect(() => { if (initialPermissionProfile) setPermissionProfile(initialPermissionProfile); }, [initialPermissionProfile]);
 
   // Persist working directory so the standalone MCP manager page can read it
   useEffect(() => {
@@ -57,7 +79,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     () => getSnapshot(sessionId)
   );
 
-  // Derive rendering state from snapshot (backward-compatible with MessageList props)
+  // Derive rendering state from snapshot
   const isStreaming = streamSnapshot?.phase === 'active';
   const streamingContent = streamSnapshot?.streamingContent ?? '';
   const toolUses = streamSnapshot?.toolUses ?? [];
@@ -68,15 +90,15 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const permissionResolved = streamSnapshot?.permissionResolved ?? null;
   const permissionQueueSize = streamSnapshot?.permissionQueueSize ?? 0;
   const activeAgents = streamSnapshot?.activeAgents ?? [];
+  const rewindPoints = getRewindPoints(sessionId);
 
-  // Pending image generation notices — flushed into the next user message so the LLM knows about generated images
+  // Pending image generation notices
   const pendingImageNoticesRef = useRef<string[]>([]);
-  // Ref for sendMessage to allow self-referencing in timeout auto-retry
   const sendMessageRef = useRef<(content: string, files?: FileAttachment[]) => Promise<void>>(undefined);
+  const initMetaRef = useRef<{ tools?: unknown; slash_commands?: unknown; skills?: unknown } | null>(null);
 
   const handleModeChange = useCallback((newMode: string) => {
     setMode(newMode);
-    // Persist mode to database and notify chat list
     if (sessionId) {
       fetch(`/api/chat/sessions/${sessionId}`, {
         method: 'PATCH',
@@ -86,19 +108,17 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         window.dispatchEvent(new CustomEvent('session-updated'));
       }).catch(() => { /* silent */ });
 
-      // Try to switch SDK permission mode in real-time (works if streaming)
       fetch('/api/chat/mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, mode: newMode }),
-      }).catch(() => { /* silent — will apply on next message */ });
+      }).catch(() => { /* silent */ });
     }
   }, [sessionId]);
 
   const handleProviderModelChange = useCallback((newProviderId: string, model: string) => {
     setCurrentProviderId(newProviderId);
     setCurrentModel(model);
-    // Persist immediately so switching chats preserves the selection
     fetch(`/api/chat/sessions/${sessionId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -106,68 +126,15 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     }).catch(() => {});
   }, [sessionId]);
 
-  // Subscribe to stream-session-manager for this session.
-  // On unmount we only unsubscribe — we do NOT abort the stream.
-  useEffect(() => {
-    // Restore snapshot if stream is already active (e.g., user switched away and back)
-    const existing = getSnapshot(sessionId);
-    if (existing) {
-      setStreamSnapshot(existing);
-      if (existing.phase === 'active') {
-        setStreamingSessionId(sessionId);
-      }
-      if (existing.pendingPermission && !existing.permissionResolved) {
-        setPendingApprovalSessionId(sessionId);
-      }
-    } else {
-      setStreamSnapshot(null);
-    }
+  // ── Extracted hooks ──
 
-    const unsubscribe = subscribe(sessionId, (event) => {
-      setStreamSnapshot(event.snapshot);
-
-      // Sync panel state
-      if (event.type === 'phase-changed') {
-        if (event.snapshot.phase === 'active') {
-          setStreamingSessionId(sessionId);
-        } else {
-          setStreamingSessionId('');
-          setPendingApprovalSessionId('');
-        }
-      }
-      if (event.type === 'permission-request') {
-        setPendingApprovalSessionId(sessionId);
-      }
-      if (event.type === 'completed') {
-        setStreamingSessionId('');
-        setPendingApprovalSessionId('');
-
-        // Append the final assistant message to the messages list
-        const finalContent = event.snapshot.finalMessageContent;
-        if (finalContent) {
-          const assistantMessage: Message = {
-            id: 'temp-assistant-' + Date.now(),
-            session_id: sessionId,
-            role: 'assistant',
-            content: finalContent,
-            created_at: new Date().toISOString(),
-            token_usage: event.snapshot.tokenUsage ? JSON.stringify(event.snapshot.tokenUsage) : null,
-          };
-          // Transfer pending reference images to this message ID
-          transferPendingToMessage(assistantMessage.id);
-          setMessages((prev) => [...prev, assistantMessage]);
-        }
-
-        // Clear the snapshot from the manager since we've consumed it
-        clearSnapshot(sessionId);
-      }
-    });
-
-    return () => {
-      unsubscribe();
-      // Do NOT abort — stream continues in the manager
-    };
-  }, [sessionId, setStreamingSessionId, setPendingApprovalSessionId]);
+  useStreamSubscription({
+    sessionId,
+    setStreamSnapshot,
+    setStreamingSessionId,
+    setPendingApprovalSessionId,
+    setMessages,
+  });
 
   const initializedRef = useRef(false);
   useEffect(() => {
@@ -177,25 +144,96 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     }
   }, [initialMessages]);
 
-  // Sync mode when session data loads
-  useEffect(() => {
-    if (initialMode) {
-      setMode(initialMode);
-    }
-  }, [initialMode]);
+  useEffect(() => { if (initialMode) setMode(initialMode); }, [initialMode]);
+  useEffect(() => { setHasMore(initialHasMore); }, [initialHasMore]);
 
-  // Sync hasMore when initial data loads
+  const buildThinkingConfig = useCallback((): { type: string } | undefined => {
+    if (!thinkingMode || thinkingMode === 'adaptive') return { type: 'adaptive' };
+    if (thinkingMode === 'enabled') return { type: 'enabled' };
+    if (thinkingMode === 'disabled') return { type: 'disabled' };
+    return undefined;
+  }, [thinkingMode]);
+
+  const checkAssistantTrigger = useAssistantTrigger({
+    sessionId,
+    workingDirectory,
+    isStreaming,
+    mode,
+    currentModel,
+    currentProviderId,
+    initialMessages,
+    handleModeChange,
+    buildThinkingConfig,
+    sendMessageRef,
+    initMetaRef,
+  });
+
+  // Detect workspace mismatch
   useEffect(() => {
-    setHasMore(initialHasMore);
-  }, [initialHasMore]);
+    if (!workingDirectory) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/settings/workspace');
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled) return;
+
+        if (data.path && workingDirectory !== data.path) {
+          const inspectRes = await fetch(`/api/workspace/inspect?path=${encodeURIComponent(workingDirectory)}`);
+          if (!inspectRes.ok || cancelled) return;
+          const inspectData = await inspectRes.json();
+          if (inspectData.hasAssistantData) {
+            setWorkspaceMismatchPath(data.path);
+          } else {
+            setWorkspaceMismatchPath(null);
+          }
+        } else {
+          setWorkspaceMismatchPath(null);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [workingDirectory]);
+
+  // Listen for workspace-switched events
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.newPath && workingDirectory && workingDirectory === detail.oldPath) {
+        setWorkspaceMismatchPath(detail.newPath);
+      }
+    };
+    window.addEventListener('assistant-workspace-switched', handler);
+    return () => window.removeEventListener('assistant-workspace-switched', handler);
+  }, [workingDirectory]);
+
+  const handleOpenNewAssistant = useCallback(async () => {
+    try {
+      const model = typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') || '' : '';
+      const provider_id = typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') || '' : '';
+      const res = await fetch('/api/workspace/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'checkin', model, provider_id }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        window.dispatchEvent(new CustomEvent('session-created'));
+        router.push(`/chat/${data.session.id}`);
+      }
+    } catch (e) {
+      console.error('[ChatView] Failed to open assistant session:', e);
+    }
+  }, [router]);
 
   const loadEarlierMessages = useCallback(async () => {
-    // Use ref as atomic lock to prevent double-fetch from rapid clicks
     if (loadingMoreRef.current || !hasMore || messages.length === 0) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
-      // Use _rowid of the earliest message as cursor
       const earliest = messages[0];
       const earliestRowId = (earliest as Message & { _rowid?: number })._rowid;
       if (!earliestRowId) return;
@@ -212,12 +250,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     }
   }, [sessionId, messages, hasMore]);
 
-  // Stop streaming — delegates to manager
-  const stopStreaming = useCallback(() => {
-    stopStream(sessionId);
-  }, [sessionId]);
+  const stopStreaming = useCallback(() => { stopStream(sessionId); }, [sessionId]);
 
-  // Permission response — delegates to manager
   const handlePermissionResponse = useCallback(
     async (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string, updatedPermissions?: Array<Record<string, unknown>>) => {
       setPendingApprovalSessionId('');
@@ -226,21 +260,16 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     [sessionId, setPendingApprovalSessionId]
   );
 
-  // Send message — delegates stream management to the manager
   const sendMessage = useCallback(
     async (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string) => {
 
-      // Use displayOverride for UI if provided (e.g. image-gen skill injection hides the skill prompt)
       const displayUserContent = displayOverride || content;
-
-      // Build display content: embed file metadata as HTML comment for MessageItem to parse
       let displayContent = displayUserContent;
       if (files && files.length > 0) {
         const fileMeta = files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size }));
         displayContent = `<!--files:${JSON.stringify(fileMeta)}-->${displayUserContent}`;
       }
 
-      // Optimistic: add user message to UI immediately
       const userMessage: Message = {
         id: 'temp-' + Date.now(),
         session_id: sessionId,
@@ -251,15 +280,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       };
       setMessages((prev) => [...prev, userMessage]);
 
-      // Flush pending image notices
       const notices = pendingImageNoticesRef.current.length > 0
         ? [...pendingImageNoticesRef.current]
         : undefined;
-      if (notices) {
-        pendingImageNoticesRef.current = [];
-      }
+      if (notices) pendingImageNoticesRef.current = [];
 
-      // Delegate to stream session manager
       startStream({
         sessionId,
         content,
@@ -269,6 +294,9 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         files,
         systemPromptAppend,
         pendingImageNotices: notices,
+        effort: selectedEffort,
+        thinking: buildThinkingConfig(),
+        displayOverride,
         onModeChanged: (sdkMode) => {
           const uiMode = sdkMode === 'plan' ? 'plan' : 'code';
           handleModeChange(uiMode);
@@ -276,92 +304,20 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         sendMessageFn: (retryContent: string, retryFiles?: FileAttachment[]) => {
           sendMessageRef.current?.(retryContent, retryFiles);
         },
+        onInitMeta: (meta) => {
+          initMetaRef.current = meta;
+          console.log('[ChatView] SDK init meta received:', meta);
+        },
       });
     },
-    [sessionId, mode, currentModel, currentProviderId, handleModeChange]
+    [sessionId, isStreaming, mode, currentModel, currentProviderId, selectedEffort, buildThinkingConfig, handleModeChange]
   );
 
-  // Keep sendMessageRef in sync so timeout auto-retry can call it
   sendMessageRef.current = sendMessage;
 
-  const handleCommand = useCallback((command: string) => {
-    switch (command) {
-      case '/help': {
-        const helpMessage: Message = {
-          id: 'cmd-' + Date.now(),
-          session_id: sessionId,
-          role: 'assistant',
-          content: `## Available Commands\n\n### Instant Commands\n- **/help** — Show this help message\n- **/clear** — Clear conversation history\n- **/cost** — Show token usage statistics\n\n### Prompt Commands (shown as badge, add context then send)\n- **/compact** — Compress conversation context\n- **/doctor** — Diagnose project health\n- **/init** — Initialize CLAUDE.md for project\n- **/review** — Review code quality\n- **/terminal-setup** — Configure terminal settings\n- **/memory** — Edit project memory file\n\n### Custom Skills\nSkills from \`~/.claude-internal/commands/\` and project \`.claude/commands/\` are also available via \`/\`.\n\n**Tips:**\n- Type \`/\` to browse commands and skills\n- Type \`@\` to mention files\n- Use Shift+Enter for new line\n- Select a project folder to enable file operations`,
-          created_at: new Date().toISOString(),
-          token_usage: null,
-        };
-        setMessages(prev => [...prev, helpMessage]);
-        break;
-      }
-      case '/clear':
-        setMessages([]);
-        // Also clear database messages and reset SDK session
-        if (sessionId) {
-          fetch(`/api/chat/sessions/${sessionId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clear_messages: true }),
-          }).catch(() => { /* silent */ });
-        }
-        break;
-      case '/cost': {
-        // Aggregate token usage from all messages in this session
-        let totalInput = 0;
-        let totalOutput = 0;
-        let totalCacheRead = 0;
-        let totalCacheCreation = 0;
-        let totalCost = 0;
-        let turnCount = 0;
+  const handleCommand = useChatCommands({ sessionId, messages, setMessages, sendMessage });
 
-        for (const msg of messages) {
-          if (msg.token_usage) {
-            try {
-              const usage = typeof msg.token_usage === 'string' ? JSON.parse(msg.token_usage) : msg.token_usage;
-              totalInput += usage.input_tokens || 0;
-              totalOutput += usage.output_tokens || 0;
-              totalCacheRead += usage.cache_read_input_tokens || 0;
-              totalCacheCreation += usage.cache_creation_input_tokens || 0;
-              if (usage.cost_usd) totalCost += usage.cost_usd;
-              turnCount++;
-            } catch { /* skip */ }
-          }
-        }
-
-        const totalTokens = totalInput + totalOutput;
-        let content: string;
-
-        if (turnCount === 0) {
-          content = `## Token Usage\n\nNo token usage data yet. Send a message first.`;
-        } else {
-          content = `## Token Usage\n\n| Metric | Count |\n|--------|-------|\n| Input tokens | ${totalInput.toLocaleString()} |\n| Output tokens | ${totalOutput.toLocaleString()} |\n| Cache read | ${totalCacheRead.toLocaleString()} |\n| Cache creation | ${totalCacheCreation.toLocaleString()} |\n| **Total tokens** | **${totalTokens.toLocaleString()}** |\n| Turns | ${turnCount} |${totalCost > 0 ? `\n| **Estimated cost** | **$${totalCost.toFixed(4)}** |` : ''}`;
-        }
-
-        const costMessage: Message = {
-          id: 'cmd-' + Date.now(),
-          session_id: sessionId,
-          role: 'assistant',
-          content,
-          created_at: new Date().toISOString(),
-          token_usage: null,
-        };
-        setMessages(prev => [...prev, costMessage]);
-        break;
-      }
-      default:
-        // This shouldn't be reached since non-immediate commands are handled via badge
-        sendMessage(command);
-    }
-  }, [sessionId, sendMessage]);
-
-  // Listen for image generation completion — persist notice to DB and queue for next user message.
-  // The notice is NOT sent as a separate LLM turn (avoids permission popups).
-  // Instead it's flushed into the next user message via pendingImageNoticesRef.
-  // MessageItem hides messages matching this prefix so the user doesn't see them.
+  // Listen for image generation completion
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -372,15 +328,12 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       const pathInfo = paths.length > 0 ? `\nGenerated image file paths:\n${paths.map((p: string) => `- ${p}`).join('\n')}` : '';
       const notice = `[Image generation completed]\n- Prompt: "${detail.prompt}"\n- Aspect ratio: ${detail.aspectRatio}\n- Resolution: ${detail.resolution}${pathInfo}`;
 
-      // Store generated image paths so subsequent edits can use them as reference
       if (paths.length > 0) {
         setLastGeneratedImages(paths);
       }
 
-      // Queue for next user message so the LLM gets the context
       pendingImageNoticesRef.current.push(notice);
 
-      // Also persist to DB for history reload
       const dbNotice = `[__IMAGE_GEN_NOTICE__ prompt: "${detail.prompt}", aspect ratio: ${detail.aspectRatio}, resolution: ${detail.resolution}${paths.length > 0 ? `, file path: ${paths.join(', ')}` : ''}]`;
       fetch('/api/chat/messages', {
         method: 'POST',
@@ -394,6 +347,20 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* Workspace mismatch banner */}
+      {workspaceMismatchPath && (
+        <div className="flex items-center justify-between gap-3 border-b border-status-warning/30 bg-status-warning-muted px-4 py-2">
+          <span className="text-xs text-status-warning-foreground">
+            {t('assistant.switchedBanner', { path: workspaceMismatchPath })}
+          </span>
+          <Button
+            onClick={handleOpenNewAssistant}
+            className="shrink-0 rounded-md bg-status-warning px-3 py-1 text-xs font-medium text-white hover:bg-status-warning/80 transition-colors"
+          >
+            {t('assistant.openNewAssistant')}
+          </Button>
+        </div>
+      )}
       <MessageList
         messages={messages}
         streamingContent={streamingContent}
@@ -402,22 +369,29 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         toolResults={toolResults}
         streamingToolOutput={streamingToolOutput}
         statusText={statusText}
-        pendingPermission={pendingPermission}
-        onPermissionResponse={handlePermissionResponse}
-        permissionResolved={permissionResolved}
-        permissionQueueSize={permissionQueueSize}
         onForceStop={stopStreaming}
         hasMore={hasMore}
         loadingMore={loadingMore}
         onLoadMore={loadEarlierMessages}
         activeAgents={activeAgents}
         streamStartedAt={streamSnapshot?.startedAt}
+        rewindPoints={rewindPoints}
+        sessionId={sessionId}
       />
-      {/* Batch image generation panels — shown above the input area */}
+      {/* Permission prompt */}
+      <PermissionPrompt
+        pendingPermission={pendingPermission}
+        permissionResolved={permissionResolved}
+        onPermissionResponse={handlePermissionResponse}
+        toolUses={toolUses}
+        permissionProfile={permissionProfile}
+      />
+      {/* Batch image generation panels */}
       <BatchExecutionDashboard />
       <BatchContextSync />
 
       <MessageInput
+        key={sessionId}
         onSend={sendMessage}
         onCommand={handleCommand}
         onStop={stopStreaming}
@@ -429,8 +403,26 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         providerId={currentProviderId}
         onProviderModelChange={handleProviderModelChange}
         workingDirectory={workingDirectory}
-        mode={mode}
-        onModeChange={handleModeChange}
+        onAssistantTrigger={checkAssistantTrigger}
+        effort={selectedEffort}
+        onEffortChange={setSelectedEffort}
+        sdkInitMeta={initMetaRef.current}
+      />
+      <ChatComposerActionBar
+        left={<ImageGenToggle />}
+        center={
+          <ChatPermissionSelector
+            sessionId={sessionId}
+            permissionProfile={permissionProfile}
+            onPermissionChange={setPermissionProfile}
+          />
+        }
+        right={
+          <ContextUsageIndicator
+            messages={messages}
+            modelName={currentModel}
+          />
+        }
       />
     </div>
   );

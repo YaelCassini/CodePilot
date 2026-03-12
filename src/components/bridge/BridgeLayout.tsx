@@ -1,28 +1,31 @@
 "use client";
 
 import { useState, useCallback, useSyncExternalStore } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import type { IconSvgElement } from "@hugeicons/react";
-import { Wifi01Icon, TelegramIcon, BubbleChatIcon } from "@hugeicons/core-free-icons";
+import { WifiHigh, TelegramLogo, ChatTeardrop, GameController, ChatsCircle, type Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { BridgeSection } from "./BridgeSection";
 import { TelegramBridgeSection } from "./TelegramBridgeSection";
 import { FeishuBridgeSection } from "./FeishuBridgeSection";
+import { DiscordBridgeSection } from "./DiscordBridgeSection";
+import { QqBridgeSection } from "./QqBridgeSection";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 
-type Section = "bridge" | "telegram" | "feishu";
+type Section = "bridge" | "telegram" | "feishu" | "discord" | "qq";
 
 interface SidebarItem {
   id: Section;
   label: string;
-  icon: IconSvgElement;
+  icon: Icon;
 }
 
 const sidebarItems: SidebarItem[] = [
-  { id: "bridge", label: "Bridge", icon: Wifi01Icon },
-  { id: "telegram", label: "Telegram", icon: TelegramIcon },
-  { id: "feishu", label: "Feishu", icon: BubbleChatIcon },
+  { id: "bridge", label: "Bridge", icon: WifiHigh },
+  { id: "telegram", label: "Telegram", icon: TelegramLogo },
+  { id: "feishu", label: "Feishu", icon: ChatTeardrop },
+  { id: "discord", label: "Discord", icon: GameController },
+  { id: "qq", label: "QQ", icon: ChatsCircle },
 ];
 
 function getSectionFromHash(): Section {
@@ -50,6 +53,8 @@ export function BridgeLayout() {
     'Bridge': 'bridge.title',
     'Telegram': 'bridge.telegramSettings',
     'Feishu': 'bridge.feishuSettings',
+    'Discord': 'bridge.discordSettings',
+    'QQ': 'bridge.qqSettings',
   };
 
   const handleSectionChange = useCallback((section: Section) => {
@@ -70,19 +75,20 @@ export function BridgeLayout() {
       <div className="flex min-h-0 flex-1">
         <nav className="flex w-52 shrink-0 flex-col gap-1 border-r border-border/50 p-3">
           {sidebarItems.map((item) => (
-            <button
+            <Button
               key={item.id}
+              variant="ghost"
               onClick={() => handleSectionChange(item.id)}
               className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors text-left",
+                "justify-start gap-3 px-3 py-2 text-sm font-medium text-left w-full",
                 activeSection === item.id
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
               )}
             >
-              <HugeiconsIcon icon={item.icon} className="h-4 w-4 shrink-0" />
+              <item.icon size={16} className="shrink-0" />
               {t(bridgeLabelKeys[item.label])}
-            </button>
+            </Button>
           ))}
         </nav>
 
@@ -90,6 +96,8 @@ export function BridgeLayout() {
           {activeSection === "bridge" && <BridgeSection />}
           {activeSection === "telegram" && <TelegramBridgeSection />}
           {activeSection === "feishu" && <FeishuBridgeSection />}
+          {activeSection === "discord" && <DiscordBridgeSection />}
+          {activeSection === "qq" && <QqBridgeSection />}
         </div>
       </div>
     </div>

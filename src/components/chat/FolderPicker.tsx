@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Folder01Icon, FolderOpenIcon, ArrowRight01Icon, ArrowUp01Icon } from "@hugeicons/core-free-icons";
+import { Folder, FolderOpen, ArrowRight, CaretUp } from "@/components/ui/icon";
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -128,7 +127,7 @@ export function FolderPicker({ open, onOpenChange, onSelect, initialPath }: Fold
               disabled={!parentDir}
               className="shrink-0"
             >
-              <HugeiconsIcon icon={ArrowUp01Icon} className="h-4 w-4" />
+              <CaretUp size={16} />
             </Button>
             {drives.length > 0 && (
               <DropdownMenu>
@@ -173,15 +172,16 @@ export function FolderPicker({ open, onOpenChange, onSelect, initialPath }: Fold
             ) : (
               <div className="p-1">
                 {directories.map((dir) => (
-                  <button
+                  <Button
                     key={dir.path}
-                    className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-accent transition-colors text-left"
+                    variant="ghost"
+                    className="flex w-full items-center gap-2 justify-start px-3 py-1.5 text-sm text-left h-auto"
                     onClick={() => handleNavigate(dir.path)}
                   >
-                    <HugeiconsIcon icon={Folder01Icon} className="h-4 w-4 shrink-0 text-blue-500" />
+                    <Folder size={16} className="shrink-0 text-primary" />
                     <span className="truncate">{dir.name}</span>
-                    <HugeiconsIcon icon={ArrowRight01Icon} className="ml-auto h-3 w-3 shrink-0 text-muted-foreground" />
-                  </button>
+                    <ArrowRight size={12} className="ml-auto shrink-0 text-muted-foreground" />
+                  </Button>
                 ))}
               </div>
             )}
@@ -193,7 +193,7 @@ export function FolderPicker({ open, onOpenChange, onSelect, initialPath }: Fold
             {t('folderPicker.cancel')}
           </Button>
           <Button onClick={handleSelect} className="gap-2">
-            <HugeiconsIcon icon={FolderOpenIcon} className="h-4 w-4" />
+            <FolderOpen size={16} />
             {t('folderPicker.select')}
           </Button>
         </DialogFooter>

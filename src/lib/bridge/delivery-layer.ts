@@ -38,7 +38,7 @@ setInterval(() => { rateLimiter.cleanup(); }, 5 * 60_000);
  * Split text into chunks that fit within a platform's message size limit.
  * Tries to split at line boundaries when possible.
  */
-function chunkText(text: string, maxLength: number): string[] {
+export function chunkText(text: string, maxLength: number): string[] {
   if (text.length <= maxLength) return [text];
 
   const chunks: string[] = [];
@@ -274,7 +274,7 @@ export async function deliverRendered(
   adapter: BaseChannelAdapter,
   address: ChannelAddress,
   chunks: TelegramChunk[],
-  opts?: { sessionId?: string; dedupKey?: string },
+  opts?: { sessionId?: string; dedupKey?: string; replyToMessageId?: string },
 ): Promise<SendResult> {
   // Dedup check
   if (opts?.dedupKey) {
@@ -300,6 +300,8 @@ export async function deliverRendered(
       address,
       text: chunk.html,
       parseMode: 'HTML',
+      // Reply to the original message on the first chunk for threading
+      replyToMessageId: i === 0 ? opts?.replyToMessageId : undefined,
     };
 
     // Try HTML first, fall back to plain text on parse error

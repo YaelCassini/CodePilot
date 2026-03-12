@@ -3,6 +3,7 @@
 import { useCallback, useState, useEffect, useContext } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { StructureFolderIcon, PanelRightCloseIcon } from "@hugeicons/core-free-icons";
+import { TreeStructure, SidebarSimple } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -93,12 +94,16 @@ export function RightPanel({ width }: RightPanelProps) {
 
   if (!panelOpen) {
     return (
-      <div className="flex flex-col items-center gap-2 bg-background p-2 mt-5">
+      <div className="flex flex-col items-center gap-2 bg-background p-2 mt-5 border-l border-border/40">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" onClick={() => setPanelOpen(true)}>
-              <HugeiconsIcon icon={StructureFolderIcon} className="h-4 w-4" />
-              <span className="sr-only">{t("panel.openPanel")}</span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setPanelOpen(true)}
+            >
+              <TreeStructure size={16} />
+              <span className="sr-only">{t('panel.openPanel')}</span>
             </Button>
           </TooltipTrigger>
           <TooltipContent side="left">{t("panel.openPanel")}</TooltipContent>
@@ -119,9 +124,13 @@ export function RightPanel({ width }: RightPanelProps) {
         </span>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" onClick={() => setPanelOpen(false)}>
-              <HugeiconsIcon icon={PanelRightCloseIcon} className="h-4 w-4" />
-              <span className="sr-only">{t("panel.closePanel")}</span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setPanelOpen(false)}
+            >
+              <SidebarSimple size={16} />
+              <span className="sr-only">{t('panel.closePanel')}</span>
             </Button>
           </TooltipTrigger>
           <TooltipContent side="left">{t("panel.closePanel")}</TooltipContent>

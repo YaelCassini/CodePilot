@@ -53,6 +53,64 @@ export interface FilePreview {
 }
 
 // ==========================================
+// Skill / Command Types
+// ==========================================
+
+export type SkillKind = 'agent_skill' | 'slash_command' | 'sdk_command' | 'codepilot_command';
+
+// ==========================================
+// Popover / Command Input Types
+// ==========================================
+
+import type { TranslationKey } from '@/i18n';
+import type { ComponentType, SVGAttributes, RefAttributes } from 'react';
+
+/** Generic icon component type — compatible with Phosphor, Lucide, or any SVG icon. */
+export type IconComponent = ComponentType<
+  SVGAttributes<SVGSVGElement> & RefAttributes<SVGSVGElement> & { size?: number | string; className?: string }
+>;
+
+/** Shared model for popover items (slash commands, file mentions, skills). */
+export interface PopoverItem {
+  label: string;
+  value: string;
+  description?: string;
+  descriptionKey?: TranslationKey;
+  builtIn?: boolean;
+  immediate?: boolean;
+  installedSource?: 'agents' | 'claude';
+  source?: 'global' | 'project' | 'plugin' | 'installed' | 'sdk';
+  kind?: SkillKind;
+  icon?: IconComponent;
+}
+
+/** Which popover is currently active in the command input. */
+export type PopoverMode = 'file' | 'skill' | 'cli' | null;
+
+/** Active slash-command badge shown above the textarea. */
+export interface CommandBadge {
+  command: string;
+  label: string;
+  description: string;
+  kind: SkillKind;
+  installedSource?: 'agents' | 'claude';
+}
+
+/** Active CLI tool badge shown above the textarea. */
+export interface CliBadge {
+  id: string;
+  name: string;
+}
+
+/** A detected CLI tool available for use. */
+export interface CliToolItem {
+  id: string;
+  name: string;
+  version: string | null;
+  summary: string;
+}
+
+// ==========================================
 // Task Types
 // ==========================================
 
@@ -109,12 +167,20 @@ export interface Setting {
 export interface ApiProvider {
   id: string;
   name: string;
-  provider_type: string; // 'anthropic' | 'openrouter' | 'bedrock' | 'vertex' | 'custom'
+  provider_type: string; // legacy: 'anthropic' | 'openrouter' | 'bedrock' | 'vertex' | 'custom'
+  /** Wire protocol — new field, takes precedence over provider_type for dispatch */
+  protocol: string; // 'anthropic' | 'openai-compatible' | 'openrouter' | 'bedrock' | 'vertex' | 'google' | 'gemini-image'
   base_url: string;
   api_key: string;
   is_active: number; // SQLite boolean: 0 or 1
   sort_order: number;
-  extra_env: string; // JSON string of Record<string, string>
+  extra_env: string; // JSON string of Record<string, string> (legacy, prefer env_overrides_json)
+  /** Extra headers to send with API requests — JSON string of Record<string, string> */
+  headers_json: string;
+  /** Environment overrides for Claude Code SDK subprocess — JSON string of Record<string, string> */
+  env_overrides_json: string;
+  /** Semantic model role mapping — JSON string of { default?, reasoning?, small?, haiku?, sonnet?, opus? } */
+  role_models_json: string;
   notes: string;
   created_at: string;
   updated_at: string;
@@ -124,24 +190,58 @@ export interface ProviderModelGroup {
   provider_id: string;       // provider DB id, or 'env' for environment variables
   provider_name: string;
   provider_type: string;
-  models: Array<{ value: string; label: string }>;
+  /** True if this provider only supports Claude Code SDK wire protocol, not standard Messages API */
+  sdkProxyOnly?: boolean;
+  models: Array<{
+    value: string;           // internal/UI model ID
+    label: string;           // display name
+    upstreamModelId?: string; // actual API model ID (if different from value)
+    contextWindow?: number;
+    description?: string;
+    supportsEffort?: boolean;
+    supportedEffortLevels?: string[];
+    supportsAdaptiveThinking?: boolean;
+    capabilities?: Record<string, unknown>;
+    variants?: Record<string, unknown>;
+  }>;
+}
+
+export interface ProviderModel {
+  id: string;
+  provider_id: string;
+  model_id: string;
+  upstream_model_id: string;
+  display_name: string;
+  capabilities_json: string;
+  variants_json: string;
+  sort_order: number;
+  enabled: number; // SQLite boolean
+  created_at: string;
 }
 
 export interface CreateProviderRequest {
   name: string;
   provider_type?: string;
+  protocol?: string;
   base_url?: string;
   api_key?: string;
   extra_env?: string;
+  headers_json?: string;
+  env_overrides_json?: string;
+  role_models_json?: string;
   notes?: string;
 }
 
 export interface UpdateProviderRequest {
   name?: string;
   provider_type?: string;
+  protocol?: string;
   base_url?: string;
   api_key?: string;
   extra_env?: string;
+  headers_json?: string;
+  env_overrides_json?: string;
+  role_models_json?: string;
   notes?: string;
   sort_order?: number;
 }
@@ -177,6 +277,7 @@ export interface CreateSessionRequest {
   working_directory?: string;
   mode?: string;
   provider_id?: string;
+  permission_profile?: string;
 }
 
 export interface SendMessageRequest {
@@ -360,6 +461,8 @@ export type SSEEventType =
   | 'task_update'        // SDK TodoWrite task sync
   | 'agent_start'        // sub-agent started
   | 'agent_stop'         // sub-agent stopped
+  | 'keep_alive'         // SDK keep-alive heartbeat (resets idle timer)
+  | 'rewind_point'       // SDK user message with rewind checkpoint
   | 'done';              // stream complete
 
 export interface SSEEvent {
@@ -412,7 +515,7 @@ export interface PluginInfo {
 }
 
 export interface MCPServerConfig {
-  command: string;
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
   type?: 'stdio' | 'sse' | 'http';
@@ -442,7 +545,141 @@ export const SETTING_KEYS = {
   THEME: 'theme',
   PERMISSION_MODE: 'permission_mode',
   MAX_THINKING_TOKENS: 'max_thinking_tokens',
+  ASSISTANT_WORKSPACE_PATH: 'assistant_workspace_path',
 } as const;
+
+// ==========================================
+// Assistant Workspace Types
+// ==========================================
+
+export interface AssistantWorkspaceState {
+  onboardingComplete: boolean;
+  lastCheckInDate: string | null;
+  schemaVersion: number;
+  hookTriggeredSessionId?: string;
+}
+
+export interface AssistantWorkspaceFiles {
+  soul?: string;
+  memory?: string;
+  user?: string;
+  claude?: string;
+}
+
+export interface AssistantWorkspaceFilesV2 extends AssistantWorkspaceFiles {
+  dailyMemories?: string[];
+  rootReadme?: string;
+  rootPath?: string;
+  rootDir?: string;
+}
+
+// ==========================================
+// Workspace Inspect Types
+// ==========================================
+
+export interface WorkspaceInspectResult {
+  exists: boolean;
+  isDirectory: boolean;
+  readable: boolean;
+  writable: boolean;
+  hasAssistantData: boolean;
+  workspaceStatus: 'empty' | 'normal_directory' | 'existing_workspace' | 'partial_workspace' | 'invalid';
+  summary?: {
+    onboardingComplete: boolean;
+    lastCheckInDate: string | null;
+    fileCount: number;
+  };
+}
+
+// ==========================================
+// Workspace Config Types
+// ==========================================
+
+export interface AssistantWorkspaceConfig {
+  workspaceType: string;
+  organizationStyle: 'project' | 'time' | 'topic' | 'mixed';
+  captureDefault: string;
+  archivePolicy: {
+    completedTaskArchiveAfterDays: number;
+    closedProjectArchive: boolean;
+    dailyMemoryRetentionDays: number;
+  };
+  ignore: string[];
+  index: {
+    maxFileSizeKB: number;
+    chunkSize: number;
+    chunkOverlap: number;
+    maxDepth: number;
+    includeExtensions: string[];
+  };
+}
+
+// ==========================================
+// Taxonomy Types
+// ==========================================
+
+export interface TaxonomyCategory {
+  id: string;
+  label: string;
+  paths: string[];
+  role: string;
+  confidence: number;
+  source: 'user' | 'learned' | 'default';
+  description: string;
+  createdBy: string;
+}
+
+export interface TaxonomyFile {
+  version: number;
+  categories: TaxonomyCategory[];
+  evolutionRules: {
+    allowAutoCreateCategory: boolean;
+    allowAutoArchive: boolean;
+    requireConfirmationForMoves: boolean;
+  };
+}
+
+// ==========================================
+// Workspace Index Types
+// ==========================================
+
+export interface ManifestEntry {
+  noteId: string;
+  path: string;
+  title: string;
+  aliases: string[];
+  tags: string[];
+  headings: string[];
+  mtime: number;
+  size: number;
+  hash: string;
+  summary: string;
+  categoryIds: string[];
+}
+
+export interface ChunkEntry {
+  chunkId: string;
+  noteId: string;
+  path: string;
+  heading: string;
+  text: string;
+  startLine: number;
+  endLine: number;
+}
+
+export interface HotsetFile {
+  pinned: string[];
+  frequent: Array<{ path: string; count: number; lastAccessed: number }>;
+  lastUpdated: number;
+}
+
+export interface SearchResult {
+  path: string;
+  heading: string;
+  snippet: string;
+  score: number;
+  source: 'title' | 'heading' | 'tag' | 'content';
+}
 
 // ==========================================
 // Reference Image Types (for image generation)
@@ -682,11 +919,29 @@ export interface ClaudeStreamOptions {
   imageAgentMode?: boolean;
   toolTimeoutSeconds?: number;
   provider?: ApiProvider;
+  /** Explicit provider ID (e.g. 'env') — passed to resolveForClaudeCode */
+  providerId?: string;
+  /** Session's stored provider ID — passed to resolveForClaudeCode */
+  sessionProviderId?: string;
   /** Recent conversation history from DB — used as fallback context when SDK resume is unavailable or fails */
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   onRuntimeStatusChange?: (status: string) => void;
   allowedTools?: string[];
   disallowedTools?: string[];
+  /** Thinking configuration for the query */
+  thinking?: { type: 'adaptive' } | { type: 'enabled'; budgetTokens?: number } | { type: 'disabled' };
+  /** Effort level for the query */
+  effort?: 'low' | 'medium' | 'high' | 'max';
+  /** Output format for structured responses */
+  outputFormat?: { type: 'json_schema'; schema: Record<string, unknown> };
+  /** Custom agent definitions */
+  agents?: Record<string, { description: string; prompt?: string; tools?: string[]; disallowedTools?: string[] }>;
+  /** Agent name for the main thread */
+  agent?: string;
+  /** Enable file checkpointing for rewind support */
+  enableFileCheckpointing?: boolean;
+  /** When true, this is an auto-trigger turn (invisible to user) — skip rewind point emission */
+  autoTrigger?: boolean;
 }
 
 // ==========================================
@@ -710,4 +965,53 @@ export interface AgentInfo {
   transcriptPath?: string;
   mainSessionId?: string;
   projectPath?: string;
+}
+
+// ==========================================
+// CLI Tools Types
+// ==========================================
+
+export type CliToolStatus = 'not_installed' | 'installed' | 'needs_auth' | 'ready';
+export type CliToolCategory = 'media' | 'data' | 'search' | 'download' | 'document' | 'productivity';
+export type InstallMethod = 'brew' | 'npm' | 'pipx' | 'cargo';
+
+export type CliToolPlatform = 'darwin' | 'linux' | 'win32';
+
+export interface CliToolInstallMethod {
+  method: InstallMethod;
+  command: string;
+  platforms: CliToolPlatform[];
+}
+
+export interface CliToolExamplePrompt {
+  label: string;
+  promptZh: string;
+  promptEn: string;
+}
+
+export interface CliToolDefinition {
+  id: string;
+  name: string;
+  binNames: string[];
+  summaryZh: string;
+  summaryEn: string;
+  categories: CliToolCategory[];
+  installMethods: CliToolInstallMethod[];
+  setupType: 'simple' | 'needs_auth';
+  detailIntro: { zh: string; en: string };
+  useCases: { zh: string[]; en: string[] };
+  guideSteps: { zh: string[]; en: string[] };
+  examplePrompts: CliToolExamplePrompt[];
+  homepage?: string;
+  repoUrl?: string;
+  officialDocsUrl?: string;
+  supportsAutoDescribe: boolean;
+}
+
+export interface CliToolRuntimeInfo {
+  id: string;
+  status: CliToolStatus;
+  version: string | null;
+  binPath: string | null;
+  autoDescription?: { zh: string; en: string } | null;
 }

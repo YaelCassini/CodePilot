@@ -1,9 +1,11 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
+import type { TranslationKey } from '@/i18n';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import type { Message, PermissionRequestEvent, AgentInfo } from '@/types';
+import { Button } from '@/components/ui/button';
+import type { Message, AgentInfo, RewindPoint } from '@/types';
 import {
   Conversation,
   ConversationContent,
@@ -41,6 +43,101 @@ function ScrollOnStream({ isStreaming, messageCount }: { isStreaming: boolean; m
   return null;
 }
 
+/**
+ * Rewind button shown on user messages that have file checkpoints.
+ */
+function RewindButton({ sessionId, userMessageId }: { sessionId: string; userMessageId: string }) {
+  const { t } = useTranslation();
+  const [state, setState] = useState<'idle' | 'preview' | 'loading' | 'done'>('idle');
+  const [preview, setPreview] = useState<{ filesChanged?: string[]; insertions?: number; deletions?: number } | null>(null);
+
+  const handleDryRun = useCallback(async () => {
+    setState('loading');
+    try {
+      const res = await fetch('/api/chat/rewind', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, userMessageId, dryRun: true }),
+      });
+      const data = await res.json();
+      if (data.canRewind) {
+        setPreview(data);
+        setState('preview');
+      } else {
+        setState('idle');
+      }
+    } catch {
+      setState('idle');
+    }
+  }, [sessionId, userMessageId]);
+
+  const handleRewind = useCallback(async () => {
+    setState('loading');
+    try {
+      const res = await fetch('/api/chat/rewind', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, userMessageId }),
+      });
+      const data = await res.json();
+      if (data.canRewind !== false) {
+        setState('done');
+        setTimeout(() => setState('idle'), 3000);
+      } else {
+        setState('idle');
+      }
+    } catch {
+      setState('idle');
+    }
+  }, [sessionId, userMessageId]);
+
+  if (state === 'done') {
+    return (
+      <span className="text-[10px] text-status-success-foreground ml-2">
+        {t('messageList.rewindDone' as TranslationKey)}
+      </span>
+    );
+  }
+
+  if (state === 'preview' && preview) {
+    return (
+      <span className="inline-flex items-center gap-1.5 ml-2">
+        <span className="text-[10px] text-muted-foreground">
+          {preview.filesChanged?.length || 0} files, +{preview.insertions || 0}/-{preview.deletions || 0}
+        </span>
+        <Button
+          variant="link"
+          size="xs"
+          onClick={handleRewind}
+          className="text-[10px] text-primary h-auto p-0"
+        >
+          {t('messageList.rewindConfirm' as TranslationKey)}
+        </Button>
+        <Button
+          variant="link"
+          size="xs"
+          onClick={() => setState('idle')}
+          className="text-[10px] text-muted-foreground h-auto p-0"
+        >
+          {t('messageList.rewindCancel' as TranslationKey)}
+        </Button>
+      </span>
+    );
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="xs"
+      onClick={handleDryRun}
+      disabled={state === 'loading'}
+      className="text-[10px] text-muted-foreground hover:text-foreground ml-2 opacity-0 group-hover:opacity-100 h-auto p-0"
+    >
+      {state === 'loading' ? '...' : t('messageList.rewindToHere' as TranslationKey)}
+    </Button>
+  );
+}
+
 interface ToolUseInfo {
   id: string;
   name: string;
@@ -53,6 +150,11 @@ interface ToolResultInfo {
   is_error?: boolean;
 }
 
+/** Rewind points contain SDK UUIDs (not local message IDs) */
+interface RewindPoint {
+  userMessageId: string; // SDK UUID
+}
+
 interface MessageListProps {
   messages: Message[];
   streamingContent: string;
@@ -61,16 +163,15 @@ interface MessageListProps {
   toolResults?: ToolResultInfo[];
   streamingToolOutput?: string;
   statusText?: string;
-  pendingPermission?: PermissionRequestEvent | null;
-  onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string, updatedPermissions?: Array<Record<string, unknown>>) => void;
-  permissionResolved?: 'allow' | 'deny' | null;
-  permissionQueueSize?: number;
   onForceStop?: () => void;
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
   activeAgents?: AgentInfo[];
   streamStartedAt?: number;
+  /** SDK rewind points — only emitted for visible prompt-level user messages (not tool results or auto-triggers), mapped by position */
+  rewindPoints?: RewindPoint[];
+  sessionId?: string;
 }
 
 export function MessageList({
@@ -81,16 +182,14 @@ export function MessageList({
   toolResults = [],
   streamingToolOutput,
   statusText,
-  pendingPermission,
-  onPermissionResponse,
-  permissionResolved,
-  permissionQueueSize = 0,
   onForceStop,
   hasMore,
   loadingMore,
   onLoadMore,
   activeAgents = [],
   streamStartedAt,
+  rewindPoints = [],
+  sessionId,
 }: MessageListProps) {
   const { t } = useTranslation();
   // Scroll anchor: preserve position when older messages are prepended
@@ -135,20 +234,39 @@ export function MessageList({
       <ConversationContent className="mx-auto max-w-3xl px-4 py-6 gap-6">
         {hasMore && (
           <div className="flex justify-center">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={handleLoadMore}
               disabled={loadingMore}
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              className="text-muted-foreground hover:text-foreground"
             >
               {loadingMore ? t('messageList.loading') : t('messageList.loadEarlier')}
-            </button>
+            </Button>
           </div>
         )}
-        {messages.map((message) => (
-          <div key={message.id} id={`msg-${message.id}`}>
-            <MessageItem message={message} />
-          </div>
-        ))}
+        {messages.map((message) => {
+          // Map rewind points to visible user messages by position:
+          // Backend only emits rewind_point for prompt-level user messages
+          // (not tool results, not auto-trigger), so they're 1:1 with visible user messages.
+          let rewindSdkUuid: string | undefined;
+          if (message.role === 'user' && sessionId && rewindPoints.length > 0) {
+            const userMsgsBefore = messages.filter(m => m.role === 'user');
+            const userIndex = userMsgsBefore.indexOf(message);
+            if (userIndex >= 0 && userIndex < rewindPoints.length) {
+              rewindSdkUuid = rewindPoints[userIndex].userMessageId;
+            }
+          }
+
+          return (
+            <div key={message.id} id={`msg-${message.id}`} className="group">
+              <MessageItem message={message} />
+              {rewindSdkUuid && sessionId && !isStreaming && (
+                <RewindButton sessionId={sessionId} userMessageId={rewindSdkUuid} />
+              )}
+            </div>
+          );
+        })}
 
         {isStreaming && (
           <StreamingMessage
@@ -158,10 +276,6 @@ export function MessageList({
             toolResults={toolResults}
             streamingToolOutput={streamingToolOutput}
             statusText={statusText}
-            pendingPermission={pendingPermission}
-            onPermissionResponse={onPermissionResponse}
-            permissionResolved={permissionResolved}
-            permissionQueueSize={permissionQueueSize}
             onForceStop={onForceStop}
             activeAgents={activeAgents}
             streamStartedAt={streamStartedAt}

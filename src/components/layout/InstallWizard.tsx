@@ -11,16 +11,15 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Tick01Icon,
-  Cancel01Icon,
-  MinusSignIcon,
-  Loading02Icon,
-  RecordIcon,
-  Copy01Icon,
-  Download04Icon,
-} from "@hugeicons/core-free-icons";
+  Check,
+  X,
+  Minus,
+  SpinnerGap,
+  Circle,
+  Copy,
+  DownloadSimple,
+} from "@/components/ui/icon";
 import { useTranslation } from "@/hooks/useTranslation";
 
 interface InstallProgress {
@@ -68,15 +67,15 @@ function getInstallAPI() {
 function StepIcon({ status }: { status: string }) {
   switch (status) {
     case "success":
-      return <HugeiconsIcon icon={Tick01Icon} className="size-4 text-emerald-500" />;
+      return <Check size={16} className="text-status-success-foreground" />;
     case "running":
-      return <HugeiconsIcon icon={Loading02Icon} className="size-4 text-blue-500 animate-spin" />;
+      return <SpinnerGap size={16} className="text-primary animate-spin" />;
     case "failed":
-      return <HugeiconsIcon icon={Cancel01Icon} className="size-4 text-red-500" />;
+      return <X size={16} className="text-status-error-foreground" />;
     case "skipped":
-      return <HugeiconsIcon icon={MinusSignIcon} className="size-4 text-muted-foreground" />;
+      return <Minus size={16} className="text-muted-foreground" />;
     default:
-      return <HugeiconsIcon icon={RecordIcon} className="size-3.5 text-muted-foreground/40" />;
+      return <Circle size={14} className="text-muted-foreground/40" />;
   }
 }
 
@@ -223,11 +222,11 @@ export function InstallWizard({
   useEffect(() => {
     if (open) {
       setPhase("checking"); // eslint-disable-line react-hooks/set-state-in-effect -- reset state before async check
-      setLogs([]); // eslint-disable-line react-hooks/set-state-in-effect
-      setProgress(null); // eslint-disable-line react-hooks/set-state-in-effect
-      setCopied(false); // eslint-disable-line react-hooks/set-state-in-effect
-      setCopiedBrew(false); // eslint-disable-line react-hooks/set-state-in-effect
-      setPrereqs(null); // eslint-disable-line react-hooks/set-state-in-effect
+      setLogs([]);  
+      setProgress(null);  
+      setCopied(false);  
+      setCopiedBrew(false);  
+      setPrereqs(null);  
       checkPrereqs();
     }
     return () => {
@@ -266,15 +265,15 @@ export function InstallWizard({
                     className={cn(
                       step.status === "pending" && "text-muted-foreground",
                       step.status === "running" && "text-foreground font-medium",
-                      step.status === "success" && "text-emerald-700 dark:text-emerald-400",
-                      step.status === "failed" && "text-red-700 dark:text-red-400",
+                      step.status === "success" && "text-status-success-foreground",
+                      step.status === "failed" && "text-status-error-foreground",
                       step.status === "skipped" && "text-muted-foreground"
                     )}
                   >
                     {step.label}
                   </span>
                   {step.error && (
-                    <span className="text-xs text-red-500 ml-auto truncate max-w-[200px]">
+                    <span className="text-xs text-status-error-foreground ml-auto truncate max-w-[200px]">
                       {step.error}
                     </span>
                   )}
@@ -286,7 +285,7 @@ export function InstallWizard({
           {/* Phase: checking */}
           {phase === "checking" && steps.length === 0 && (
             <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
-              <HugeiconsIcon icon={Loading02Icon} className="size-4 animate-spin" />
+              <SpinnerGap size={16} className="animate-spin" />
               <span>{t('install.checkingPrereqs')}</span>
             </div>
           )}
@@ -294,8 +293,8 @@ export function InstallWizard({
           {/* Phase: confirm — ask user before installing */}
           {phase === "confirm" && prereqs && !prereqs.hasNode && !prereqs.hasHomebrew && prereqs.platform === "darwin" && (
             <div className="space-y-3">
-              <div className="rounded-lg bg-amber-500/10 px-4 py-3 text-sm space-y-1.5">
-                <p className="text-amber-700 dark:text-amber-400 font-medium">
+              <div className="rounded-lg bg-status-warning-muted px-4 py-3 text-sm space-y-1.5">
+                <p className="text-status-warning-foreground font-medium">
                   {t('install.homebrewRequired')}
                 </p>
                 <p className="text-muted-foreground text-xs">
@@ -318,7 +317,7 @@ export function InstallWizard({
                     } catch { /* clipboard not available */ }
                   }}
                 >
-                  <HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
+                  <Copy size={14} />
                   <span className="text-xs">{copiedBrew ? t('install.copied') : t('install.copy')}</span>
                 </Button>
               </div>
@@ -335,18 +334,18 @@ export function InstallWizard({
           )}
           {phase === "confirm" && !(prereqs && !prereqs.hasNode && !prereqs.hasHomebrew && prereqs.platform === "darwin") && (
             <div className="space-y-3">
-              <div className="rounded-lg bg-amber-500/10 px-4 py-3 text-sm space-y-1.5">
+              <div className="rounded-lg bg-status-warning-muted px-4 py-3 text-sm space-y-1.5">
                 {prereqs && !prereqs.hasNode && (
-                  <p className="text-amber-700 dark:text-amber-400">
+                  <p className="text-status-warning-foreground">
                     Node.js — not found (will be installed via {prereqs.platform === "win32" ? "winget" : "Homebrew"})
                   </p>
                 )}
                 {prereqs?.hasNode && (
-                  <p className="text-emerald-700 dark:text-emerald-400">
+                  <p className="text-status-success-foreground">
                     Node.js {prereqs.nodeVersion} — found
                   </p>
                 )}
-                <p className="text-amber-700 dark:text-amber-400">
+                <p className="text-status-warning-foreground">
                   Claude Code CLI — not found
                 </p>
               </div>
@@ -359,10 +358,10 @@ export function InstallWizard({
 
           {/* Phase: already-installed */}
           {phase === "already-installed" && (
-            <div className="flex items-center gap-3 rounded-lg bg-emerald-500/10 px-4 py-3">
-              <HugeiconsIcon icon={Tick01Icon} className="size-5 text-emerald-500 shrink-0" />
+            <div className="flex items-center gap-3 rounded-lg bg-status-success-muted px-4 py-3">
+              <Check size={20} className="text-status-success-foreground shrink-0" />
               <div className="text-sm">
-                <p className="font-medium text-emerald-700 dark:text-emerald-400">
+                <p className="font-medium text-status-success-foreground">
                   Already installed
                 </p>
                 <p className="text-muted-foreground text-xs">
@@ -374,10 +373,10 @@ export function InstallWizard({
 
           {/* Phase: success */}
           {phase === "success" && (
-            <div className="flex items-center gap-3 rounded-lg bg-emerald-500/10 px-4 py-3">
-              <HugeiconsIcon icon={Tick01Icon} className="size-5 text-emerald-500 shrink-0" />
+            <div className="flex items-center gap-3 rounded-lg bg-status-success-muted px-4 py-3">
+              <Check size={20} className="text-status-success-foreground shrink-0" />
               <div className="text-sm">
-                <p className="font-medium text-emerald-700 dark:text-emerald-400">
+                <p className="font-medium text-status-success-foreground">
                   {t('install.complete')}
                 </p>
                 <p className="text-muted-foreground text-xs">
@@ -409,7 +408,7 @@ export function InstallWizard({
               size="sm"
               onClick={handleCopyLogs}
             >
-              <HugeiconsIcon icon={Copy01Icon} />
+              <Copy size={16} />
               {copied ? t('install.copied') : t('install.copyLogs')}
             </Button>
           )}
@@ -422,7 +421,7 @@ export function InstallWizard({
           )}
           {phase === "confirm" && !(prereqs && !prereqs.hasNode && !prereqs.hasHomebrew && prereqs.platform === "darwin") && (
             <Button size="sm" onClick={handleConfirmInstall}>
-              <HugeiconsIcon icon={Download04Icon} />
+              <DownloadSimple size={16} />
               {t('install.install')}
             </Button>
           )}

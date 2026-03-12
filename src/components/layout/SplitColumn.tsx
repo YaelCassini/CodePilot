@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { X } from "lucide-react";
+import { X } from "@/components/ui/icon";
 import type { Message, MessagesResponse, ChatSession } from "@/types";
 import { ChatView } from "@/components/chat/ChatView";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
   const [sessionTitle, setSessionTitle] = useState("");
   const [sessionModel, setSessionModel] = useState("");
   const [sessionProviderId, setSessionProviderId] = useState("");
+  const [sessionInfoLoaded, setSessionInfoLoaded] = useState(false);
   const [sessionMode, setSessionMode] = useState("");
   const [projectName, setProjectName] = useState("");
   const [sessionWorkingDir, setSessionWorkingDir] = useState("");
@@ -33,6 +34,9 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
   // Load session metadata
   useEffect(() => {
     let cancelled = false;
+    setSessionInfoLoaded(false);
+    setSessionModel("");
+    setSessionProviderId("");
     async function loadSession() {
       try {
         const res = await fetch(`/api/chat/sessions/${sessionId}`);
@@ -48,6 +52,8 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
         }
       } catch {
         // ignore
+      } finally {
+        if (!cancelled) setSessionInfoLoaded(true);
       }
     }
     loadSession();
@@ -95,6 +101,9 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
       setWorkingDirectory(sessionWorkingDir);
       localStorage.setItem("codepilot:last-working-directory", sessionWorkingDir);
       window.dispatchEvent(new Event("refresh-file-tree"));
+    } else {
+      // Clear stale directory from previous column so FileTree doesn't show old project
+      setWorkingDirectory('');
     }
     setSessionId(sessionId);
     setPanelOpen(true);
@@ -108,12 +117,12 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
     onClose();
   }, [onClose]);
 
-  if (loading) {
+  if (loading || !sessionInfoLoaded) {
     return (
       <div
         className={cn(
           "flex flex-1 min-w-0 flex-col overflow-hidden rounded-md border-2 transition-colors",
-          isActive ? "border-blue-500" : "border-transparent"
+          isActive ? "border-primary" : "border-transparent"
         )}
         onClick={onFocus}
       >
@@ -129,7 +138,7 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
       <div
         className={cn(
           "flex flex-1 min-w-0 flex-col overflow-hidden rounded-md border-2 transition-colors",
-          isActive ? "border-blue-500" : "border-transparent"
+          isActive ? "border-primary" : "border-transparent"
         )}
         onClick={onFocus}
       >
@@ -144,7 +153,7 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
     <div
       className={cn(
         "flex flex-1 min-w-0 flex-col overflow-hidden rounded-md border-2 transition-colors",
-        isActive ? "border-blue-500" : "border-transparent"
+        isActive ? "border-primary" : "border-transparent"
       )}
       onClick={onFocus}
     >

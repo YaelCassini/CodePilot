@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { RefreshIcon, Search01Icon, SourceCodeIcon, CodeIcon, File01Icon } from "@hugeicons/core-free-icons";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { ArrowsClockwise, MagnifyingGlass, FileCode, Code, File } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -43,19 +42,19 @@ function getFileIcon(extension?: string): ReactNode {
     case "lua":
     case "php":
     case "zig":
-      return <HugeiconsIcon icon={SourceCodeIcon} className="size-4 text-muted-foreground" />;
+      return <FileCode size={16} className="text-muted-foreground" />;
     case "json":
     case "yaml":
     case "yml":
     case "toml":
-      return <HugeiconsIcon icon={CodeIcon} className="size-4 text-muted-foreground" />;
+      return <Code size={16} className="text-muted-foreground" />;
     case "md":
     case "mdx":
     case "txt":
     case "csv":
-      return <HugeiconsIcon icon={File01Icon} className="size-4 text-muted-foreground" />;
+      return <File size={16} className="text-muted-foreground" />;
     default:
-      return <HugeiconsIcon icon={File01Icon} className="size-4 text-muted-foreground" />;
+      return <File size={16} className="text-muted-foreground" />;
   }
 }
 
@@ -109,35 +108,69 @@ function RenderTreeNodes({ nodes, searchQuery }: { nodes: FileTreeNode[]; search
 export function FileTree({ workingDirectory, onFileSelect, onFileAdd }: FileTreeProps) {
   const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
   const { t } = useTranslation();
 
   const fetchTree = useCallback(async () => {
+    // Always cancel in-flight request first — even when clearing directory,
+    // otherwise a stale response from the old project can arrive and repopulate the tree.
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+
     if (!workingDirectory) {
+      abortRef.current = null;
       setTree([]);
+      setError(null);
+      setLoading(false);
       return;
     }
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch(
-        `/api/files?dir=${encodeURIComponent(workingDirectory)}&baseDir=${encodeURIComponent(workingDirectory)}&depth=4&_t=${Date.now()}`
+        `/api/files?dir=${encodeURIComponent(workingDirectory)}&baseDir=${encodeURIComponent(workingDirectory)}&depth=4&_t=${Date.now()}`,
+        { signal: controller.signal }
       );
+      if (controller.signal.aborted) return;
       if (res.ok) {
         const data = await res.json();
+        if (controller.signal.aborted) return;
         setTree(data.tree || []);
       } else {
+        const errData = await res.json().catch(() => ({ error: res.statusText }));
         setTree([]);
+        setError(errData.error || `Failed to load (${res.status})`);
       }
-    } catch {
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') return;
       setTree([]);
+      setError('Failed to load file tree');
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
     }
   }, [workingDirectory]);
 
   useEffect(() => {
     fetchTree();
   }, [fetchTree]);
+
+  // Cleanup abort controller on unmount
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) {
+        abortRef.current.abort();
+      }
+    };
+  }, []);
 
   // Auto-refresh when AI finishes streaming
   useEffect(() => {
@@ -154,7 +187,7 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd }: FileTree
       {/* Search + Refresh */}
       <div className="flex items-center gap-1.5 px-4 py-2 shrink-0">
         <div className="relative flex-1 min-w-0">
-          <HugeiconsIcon icon={Search01Icon} className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <MagnifyingGlass size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           <Input
             placeholder={t('fileTree.filterFiles')}
             value={searchQuery}
@@ -169,7 +202,7 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd }: FileTree
           disabled={loading}
           className="h-7 w-7 shrink-0"
         >
-          <HugeiconsIcon icon={RefreshIcon} className={cn("h-3 w-3", loading && "animate-spin")} />
+          <ArrowsClockwise size={12} className={cn(loading && "animate-spin")} />
           <span className="sr-only">{t('fileTree.refresh')}</span>
         </Button>
       </div>
@@ -178,11 +211,11 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd }: FileTree
       <div className="flex-1 overflow-auto">
         {loading && tree.length === 0 ? (
           <div className="flex items-center justify-center py-8">
-            <HugeiconsIcon icon={RefreshIcon} className="h-4 w-4 animate-spin text-muted-foreground" />
+            <ArrowsClockwise size={16} className="animate-spin text-muted-foreground" />
           </div>
         ) : tree.length === 0 ? (
           <p className="py-4 text-center text-xs text-muted-foreground">
-            {workingDirectory ? t('fileTree.noFiles') : t('fileTree.selectFolder')}
+            {error ? error : workingDirectory ? t('fileTree.noFiles') : t('fileTree.selectFolder')}
           </p>
         ) : (
           <AIFileTree

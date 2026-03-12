@@ -2,12 +2,11 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useTheme } from "next-themes";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon, Copy01Icon, Tick01Icon, Loading02Icon } from "@hugeicons/core-free-icons";
+import { X, Copy, Check, SpinnerGap } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
-import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
-import { atomOneLight } from "react-syntax-highlighter/dist/esm/styles/hljs";
+import { useThemeFamily } from "@/lib/theme/context";
+import { resolveCodeTheme, resolveHljsStyle } from "@/lib/theme/code-themes";
 import { Streamdown } from "streamdown";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
@@ -94,7 +93,7 @@ export function DocPreview({
     return () => {
       cancelled = true;
     };
-  }, [filePath]);
+  }, [filePath, workingDirectory]);
 
   const handleCopyContent = async () => {
     const text = preview?.content || filePath;
@@ -132,15 +131,15 @@ export function DocPreview({
 
         <Button variant="ghost" size="icon-sm" onClick={handleCopyContent}>
           {copied ? (
-            <HugeiconsIcon icon={Tick01Icon} className="h-3.5 w-3.5 text-green-500" />
+            <Check size={14} className="text-status-success-foreground" />
           ) : (
-            <HugeiconsIcon icon={Copy01Icon} className="h-3.5 w-3.5" />
+            <Copy size={14} />
           )}
           <span className="sr-only">Copy content</span>
         </Button>
 
         <Button variant="ghost" size="icon-sm" onClick={onClose}>
-          <HugeiconsIcon icon={Cancel01Icon} className="h-3.5 w-3.5" />
+          <X size={14} />
           <span className="sr-only">Close preview</span>
         </Button>
       </div>
@@ -161,10 +160,7 @@ export function DocPreview({
       <div className="flex-1 min-h-0 overflow-auto">
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <HugeiconsIcon
-              icon={Loading02Icon}
-              className="h-5 w-5 animate-spin text-muted-foreground"
-            />
+            <SpinnerGap size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : error ? (
           <div className="px-4 py-8 text-center">
@@ -192,8 +188,10 @@ function ViewModeToggle({
 }) {
   return (
     <div className="flex h-6 items-center rounded-full bg-muted p-0.5 text-[11px]">
-      <button
-        className={`rounded-full px-2 py-0.5 font-medium transition-colors ${
+      <Button
+        variant="ghost"
+        size="sm"
+        className={`rounded-full px-2 py-0.5 font-medium h-auto ${
           value === "source"
             ? "bg-background text-foreground shadow-sm"
             : "text-muted-foreground hover:text-foreground"
@@ -201,9 +199,11 @@ function ViewModeToggle({
         onClick={() => onChange("source")}
       >
         Source
-      </button>
-      <button
-        className={`rounded-full px-2 py-0.5 font-medium transition-colors ${
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className={`rounded-full px-2 py-0.5 font-medium h-auto ${
           value === "rendered"
             ? "bg-background text-foreground shadow-sm"
             : "text-muted-foreground hover:text-foreground"
@@ -211,18 +211,26 @@ function ViewModeToggle({
         onClick={() => onChange("rendered")}
       >
         Preview
-      </button>
+      </Button>
     </div>
   );
 }
 
+/** Resolve hljs style from the current theme family + mode. */
+function useDocCodeTheme(isDark: boolean) {
+  const { family, families } = useThemeFamily();
+  const codeTheme = resolveCodeTheme(families, family);
+  return resolveHljsStyle(codeTheme, isDark);
+}
+
 /** Source code view using react-syntax-highlighter */
 function SourceView({ preview, isDark }: { preview: FilePreviewType; isDark: boolean }) {
+  const hljsStyle = useDocCodeTheme(isDark);
   return (
     <div className="text-xs">
       <SyntaxHighlighter
         language={preview.language}
-        style={isDark ? atomOneDark : atomOneLight}
+        style={hljsStyle}
         showLineNumbers
         customStyle={{
           margin: 0,
@@ -235,7 +243,8 @@ function SourceView({ preview, isDark }: { preview: FilePreviewType; isDark: boo
         lineNumberStyle={{
           minWidth: "2.5em",
           paddingRight: "8px",
-          color: isDark ? "#636d83" : "#9ca3af",
+          color: "var(--muted-foreground)",
+          opacity: 0.5,
           userSelect: "none",
         }}
       >

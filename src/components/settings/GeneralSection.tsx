@@ -13,12 +13,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ReloadIcon, Loading02Icon } from "@hugeicons/core-free-icons";
+import { ArrowClockwise, SpinnerGap } from "@/components/ui/icon";
 import { useUpdate } from "@/hooks/useUpdate";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useAccountInfo } from "@/hooks/useAccountInfo";
 import { SUPPORTED_LOCALES, type Locale } from "@/i18n";
+import type { TranslationKey } from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SettingsCard } from "@/components/patterns/SettingsCard";
+import { FieldRow } from "@/components/patterns/FieldRow";
+import { StatusBanner } from "@/components/patterns/StatusBanner";
+import { AppearanceSection } from "./AppearanceSection";
 
 function UpdateCard() {
   const { updateInfo, checking, checkForUpdates, downloadUpdate, quitAndInstall, setShowDialog } = useUpdate();
@@ -29,7 +34,7 @@ function UpdateCard() {
     && updateInfo.downloadProgress != null;
 
   return (
-    <div className="rounded-lg border border-border/50 p-4 transition-shadow hover:shadow-sm">
+    <SettingsCard>
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-medium">{t('settings.codepilot')}</h2>
@@ -60,9 +65,9 @@ function UpdateCard() {
             className="gap-2"
           >
             {checking ? (
-              <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin" />
+              <SpinnerGap size={14} className="animate-spin" />
             ) : (
-              <HugeiconsIcon icon={ReloadIcon} className="h-3.5 w-3.5" />
+              <ArrowClockwise size={14} />
             )}
             {checking ? t('settings.checking') : t('settings.checkForUpdates')}
           </Button>
@@ -74,7 +79,7 @@ function UpdateCard() {
           {updateInfo.updateAvailable ? (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${updateInfo.readyToInstall ? 'bg-green-500' : isDownloading ? 'bg-yellow-500 animate-pulse' : 'bg-blue-500'}`} />
+                <span className={`h-2 w-2 rounded-full ${updateInfo.readyToInstall ? 'bg-status-success' : isDownloading ? 'bg-status-warning animate-pulse' : 'bg-primary'}`} />
                 <span className="text-sm">
                   {updateInfo.readyToInstall
                     ? t('update.readyToInstall', { version: updateInfo.latestVersion })
@@ -97,13 +102,13 @@ function UpdateCard() {
               {isDownloading && (
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
                   <div
-                    className="h-full rounded-full bg-blue-500 transition-all"
+                    className="h-full rounded-full bg-primary transition-all"
                     style={{ width: `${Math.min(updateInfo.downloadProgress!, 100)}%` }}
                   />
                 </div>
               )}
               {updateInfo.lastError && (
-                <p className="text-xs text-red-600 dark:text-red-400">
+                <p className="text-xs text-status-error-foreground">
                   {updateInfo.lastError}
                 </p>
               )}
@@ -113,7 +118,7 @@ function UpdateCard() {
           )}
         </div>
       )}
-    </div>
+    </SettingsCard>
   );
 }
 
@@ -121,6 +126,8 @@ export function GeneralSection() {
   const [skipPermissions, setSkipPermissions] = useState(false);
   const [showSkipPermWarning, setShowSkipPermWarning] = useState(false);
   const [skipPermSaving, setSkipPermSaving] = useState(false);
+  const [thinkingMode, setThinkingMode] = useState<string>('adaptive');
+  const { accountInfo } = useAccountInfo();
   const { t, locale, setLocale } = useTranslation();
 
   const fetchAppSettings = useCallback(async () => {
@@ -130,6 +137,9 @@ export function GeneralSection() {
         const data = await res.json();
         const appSettings = data.settings || {};
         setSkipPermissions(appSettings.dangerously_skip_permissions === "true");
+        if (appSettings.thinking_mode) {
+          setThinkingMode(appSettings.thinking_mode);
+        }
       }
     } catch {
       // ignore
@@ -139,6 +149,21 @@ export function GeneralSection() {
   useEffect(() => {
     fetchAppSettings();
   }, [fetchAppSettings]);
+
+  const saveThinkingMode = async (mode: string) => {
+    setThinkingMode(mode);
+    try {
+      await fetch("/api/settings/app", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: { thinking_mode: mode },
+        }),
+      });
+    } catch {
+      // ignore
+    }
+  };
 
   const handleSkipPermToggle = (checked: boolean) => {
     if (checked) {
@@ -173,36 +198,32 @@ export function GeneralSection() {
     <div className="max-w-3xl space-y-6">
       <UpdateCard />
 
-      {/* Auto-approve toggle */}
-      <div className={`rounded-lg border p-4 transition-shadow hover:shadow-sm ${skipPermissions ? "border-orange-500/50 bg-orange-500/5" : "border-border/50"}`}>
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-medium">{t('settings.autoApproveTitle')}</h2>
-            <p className="text-xs text-muted-foreground">
-              {t('settings.autoApproveDesc')}
-            </p>
-          </div>
+      {/* General settings card */}
+      <SettingsCard className={skipPermissions ? "border-status-warning-border bg-status-warning-muted" : undefined}>
+        {/* Auto-approve toggle */}
+        <FieldRow
+          label={t('settings.autoApproveTitle')}
+          description={t('settings.autoApproveDesc')}
+        >
           <Switch
             checked={skipPermissions}
             onCheckedChange={handleSkipPermToggle}
             disabled={skipPermSaving}
           />
-        </div>
+        </FieldRow>
         {skipPermissions && (
-          <div className="mt-3 flex items-center gap-2 rounded-md bg-orange-500/10 px-3 py-2 text-xs text-orange-600 dark:text-orange-400">
-            <span className="h-2 w-2 shrink-0 rounded-full bg-orange-500" />
+          <StatusBanner variant="warning">
+            <span className="h-2 w-2 shrink-0 rounded-full bg-status-warning inline-block mr-1" />
             {t('settings.autoApproveWarning')}
-          </div>
+          </StatusBanner>
         )}
-      </div>
 
-      {/* Language picker */}
-      <div className="rounded-lg border border-border/50 p-4 transition-shadow hover:shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-medium">{t('settings.language')}</h2>
-            <p className="text-xs text-muted-foreground">{t('settings.languageDesc')}</p>
-          </div>
+        {/* Language picker */}
+        <FieldRow
+          label={t('settings.language')}
+          description={t('settings.languageDesc')}
+          separator
+        >
           <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
             <SelectTrigger className="w-[140px]">
               <SelectValue />
@@ -213,8 +234,52 @@ export function GeneralSection() {
               ))}
             </SelectContent>
           </Select>
-        </div>
-      </div>
+        </FieldRow>
+
+        {/* Thinking mode */}
+        <FieldRow
+          label={t('settings.thinkingMode' as TranslationKey)}
+          description={t('settings.thinkingModeDesc' as TranslationKey)}
+          separator
+        >
+          <Select value={thinkingMode} onValueChange={saveThinkingMode}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="adaptive">{t('settings.thinkingAdaptive' as TranslationKey)}</SelectItem>
+              <SelectItem value="enabled">{t('settings.thinkingEnabled' as TranslationKey)}</SelectItem>
+              <SelectItem value="disabled">{t('settings.thinkingDisabled' as TranslationKey)}</SelectItem>
+            </SelectContent>
+          </Select>
+        </FieldRow>
+      </SettingsCard>
+
+      {/* Appearance */}
+      <AppearanceSection />
+
+      {/* Account info */}
+      {accountInfo && (
+        <SettingsCard title={t('settings.accountInfo' as TranslationKey)}>
+          <div className="space-y-1">
+            {accountInfo.email && (
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{t('settings.email' as TranslationKey)}:</span> {accountInfo.email}
+              </p>
+            )}
+            {accountInfo.organization && (
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{t('settings.organization' as TranslationKey)}:</span> {accountInfo.organization}
+              </p>
+            )}
+            {accountInfo.subscriptionType && (
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{t('settings.subscription' as TranslationKey)}:</span> {accountInfo.subscriptionType}
+              </p>
+            )}
+          </div>
+        </SettingsCard>
+      )}
 
       {/* Skip-permissions warning dialog */}
       <AlertDialog open={showSkipPermWarning} onOpenChange={setShowSkipPermWarning}>
@@ -231,7 +296,7 @@ export function GeneralSection() {
                   <li>{t('settings.autoApproveFileOps')}</li>
                   <li>{t('settings.autoApproveNetwork')}</li>
                 </ul>
-                <p className="font-medium text-orange-600 dark:text-orange-400">
+                <p className="font-medium text-status-warning-foreground">
                   {t('settings.autoApproveTrustWarning')}
                 </p>
               </div>
@@ -241,7 +306,7 @@ export function GeneralSection() {
             <AlertDialogCancel>{t('settings.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => saveSkipPermissions(true)}
-              className="bg-orange-600 hover:bg-orange-700 text-white"
+              className="bg-status-warning hover:bg-status-warning/80 text-white"
             >
               {t('settings.enableAutoApprove')}
             </AlertDialogAction>

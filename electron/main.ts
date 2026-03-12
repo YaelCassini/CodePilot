@@ -8,6 +8,25 @@ import os from 'os';
 const CLAUDE_BINARY_NAME = 'claude-internal';
 const CLAUDE_NPM_PACKAGE = '@tencent/claude-code-internal';
 
+/**
+ * Return a copy of process.env without __NEXT_PRIVATE_* variables.
+ *
+ * The bundled Next.js standalone server sets these at runtime
+ * (e.g. __NEXT_PRIVATE_STANDALONE_CONFIG, __NEXT_PRIVATE_ORIGIN).
+ * If they leak into child-process environments they cause every
+ * other Next.js project on the machine to skip its own config
+ * loading, breaking builds and dev servers.
+ */
+function sanitizedProcessEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.startsWith('__NEXT_PRIVATE_') && value !== undefined) {
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
 let mainWindow: BrowserWindow | null = null;
 let serverProcess: Electron.UtilityProcess | null = null;
 let serverPort: number | null = null;
@@ -345,6 +364,7 @@ function getPort(): Promise<number> {
 
 async function waitForServer(port: number, timeout = 30000): Promise<void> {
   const start = Date.now();
+  let lastError = '';
   while (Date.now() - start < timeout) {
     // If the server process already exited, fail fast
     if (serverExited) {
@@ -355,23 +375,33 @@ async function waitForServer(port: number, timeout = 30000): Promise<void> {
     try {
       await new Promise<void>((resolve, reject) => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const req = require('http').get(`http://127.0.0.1:${port}/api/health`, (res: { statusCode?: number }) => {
+        const http = require('http');
+        // Use options object with family:4 to force IPv4 — avoids Windows
+        // IPv6 resolution issues where 127.0.0.1 may fail to connect.
+        const req = http.get({
+          hostname: '127.0.0.1',
+          port,
+          path: '/api/health',
+          family: 4,
+          timeout: 2000,
+        }, (res: { statusCode?: number }) => {
           if (res.statusCode === 200) resolve();
           else reject(new Error(`Status ${res.statusCode}`));
         });
-        req.on('error', reject);
-        req.setTimeout(1000, () => {
+        req.on('error', (err: Error) => reject(err));
+        req.on('timeout', () => {
           req.destroy();
-          reject(new Error('timeout'));
+          reject(new Error('request timeout'));
         });
       });
       return;
-    } catch {
-      await new Promise(r => setTimeout(r, 200));
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      await new Promise(r => setTimeout(r, 300));
     }
   }
   throw new Error(
-    `Server startup timeout after ${timeout / 1000}s.\n\n${serverErrors.length > 0 ? 'Server output:\n' + serverErrors.slice(-10).join('\n') : 'No server output captured.'}`
+    `Server startup timeout after ${timeout / 1000}s.\n\nLast health-check error: ${lastError}\n\n${serverErrors.length > 0 ? 'Server output:\n' + serverErrors.slice(-10).join('\n') : 'No server output captured.'}`
   );
 }
 
@@ -391,7 +421,7 @@ function startServer(port: number): Electron.UtilityProcess {
 
   const env: Record<string, string> = {
     ...userShellEnv,
-    ...(process.env as Record<string, string>),
+    ...sanitizedProcessEnv(),
     // Ensure user shell env vars override (especially API keys)
     ...userShellEnv,
     PORT: String(port),
@@ -554,7 +584,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('install:check-prerequisites', async () => {
     const expandedPath = getExpandedShellPath();
-    const execEnv = { ...process.env, ...userShellEnv, PATH: expandedPath };
+    const execEnv = { ...sanitizedProcessEnv(), ...userShellEnv, PATH: expandedPath };
     const execOpts = { timeout: 5000, encoding: 'utf-8' as const, env: execEnv };
 
     let hasNode = false;
@@ -618,7 +648,7 @@ app.whenReady().then(async () => {
     const expandedPath = getExpandedShellPath();
     const execEnv: Record<string, string> = {
       ...userShellEnv,
-      ...(process.env as Record<string, string>),
+      ...sanitizedProcessEnv(),
       ...userShellEnv,
       PATH: expandedPath,
     };

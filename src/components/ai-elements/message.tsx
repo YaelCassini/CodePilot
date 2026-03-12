@@ -16,10 +16,10 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { cjk } from "@streamdown/cjk";
-import { code } from "@streamdown/code";
+import { createCodePlugin } from "@streamdown/code";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
-import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 import {
   createContext,
   memo,
@@ -56,7 +56,7 @@ export const MessageContent = ({
   <div
     className={cn(
       "is-user:dark flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
-      "group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground",
+      "group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-(--user-bubble) group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-(--user-bubble-foreground)",
       "group-[.is-assistant]:w-full group-[.is-assistant]:text-foreground",
       className
     )}
@@ -271,7 +271,7 @@ export const MessageBranchPrevious = ({
       variant="ghost"
       {...props}
     >
-      {children ?? <ChevronLeftIcon size={14} />}
+      {children ?? <CaretLeft size={14} />}
     </Button>
   );
 };
@@ -294,7 +294,7 @@ export const MessageBranchNext = ({
       variant="ghost"
       {...props}
     >
-      {children ?? <ChevronRightIcon size={14} />}
+      {children ?? <CaretRight size={14} />}
     </Button>
   );
 };
@@ -322,7 +322,18 @@ export const MessageBranchPage = ({
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
-const streamdownPlugins = { cjk, code, math, mermaid };
+// Wrap @streamdown/code to silently skip unsupported languages instead of throwing
+const _codePlugin = createCodePlugin();
+const safeCode: typeof _codePlugin = {
+  ..._codePlugin,
+  highlight(params, callback) {
+    if (!_codePlugin.supportsLanguage(params.language)) {
+      return null; // Let Streamdown render as plain text
+    }
+    return _codePlugin.highlight(params, callback);
+  },
+};
+const streamdownPlugins = { cjk, code: safeCode, math, mermaid };
 
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (

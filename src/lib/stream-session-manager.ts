@@ -33,7 +33,6 @@ interface ActiveStream {
   sessionId: string;
   abortController: AbortController;
   snapshot: SessionStreamSnapshot;
-  listeners: Set<StreamEventListener>;
   idleCheckTimer: ReturnType<typeof setInterval> | null;
   lastEventTime: number;
   gcTimer: ReturnType<typeof setTimeout> | null;
@@ -59,10 +58,20 @@ export interface StartStreamParams {
   files?: FileAttachment[];
   systemPromptAppend?: string;
   pendingImageNotices?: string[];
+  /** When true, backend skips saving user message and title update (assistant auto-trigger) */
+  autoTrigger?: boolean;
   /** Called when SDK mode changes (e.g. plan → code) */
   onModeChanged?: (mode: string) => void;
   /** Reference to the outer sendMessage so tool-timeout auto-retry works */
   sendMessageFn?: (content: string, files?: FileAttachment[]) => void;
+  /** SDK effort level (low/medium/high/max) — only sent when model supports it */
+  effort?: string;
+  /** SDK thinking config */
+  thinking?: { type: string; budgetTokens?: number };
+  /** Called when init status event provides metadata (tools, slash_commands, skills) */
+  onInitMeta?: (meta: { tools?: unknown; slash_commands?: unknown; skills?: unknown }) => void;
+  /** Display-only content for user message (e.g. /skillName instead of expanded prompt) */
+  displayOverride?: string;
 }
 
 // ==========================================
@@ -70,6 +79,7 @@ export interface StartStreamParams {
 // ==========================================
 
 const GLOBAL_KEY = '__streamSessionManager__' as const;
+const LISTENERS_KEY = '__streamSessionListeners__' as const;
 const STREAM_IDLE_TIMEOUT_MS = 330_000;
 const GC_DELAY_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -78,6 +88,14 @@ function getStreamsMap(): Map<string, ActiveStream> {
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = new Map<string, ActiveStream>();
   }
   return (globalThis as Record<string, unknown>)[GLOBAL_KEY] as Map<string, ActiveStream>;
+}
+
+/** Listener registry — persists independently of stream entries so GC doesn't orphan listeners */
+function getListenersMap(): Map<string, Set<StreamEventListener>> {
+  if (!(globalThis as Record<string, unknown>)[LISTENERS_KEY]) {
+    (globalThis as Record<string, unknown>)[LISTENERS_KEY] = new Map<string, Set<StreamEventListener>>();
+  }
+  return (globalThis as Record<string, unknown>)[LISTENERS_KEY] as Map<string, Set<StreamEventListener>>;
 }
 
 // ==========================================
@@ -110,8 +128,11 @@ function emit(stream: ActiveStream, type: StreamEvent['type']) {
   const snapshot = buildSnapshot(stream);
   stream.snapshot = snapshot; // store latest
   const event: StreamEvent = { type, sessionId: stream.sessionId, snapshot };
-  for (const listener of stream.listeners) {
-    try { listener(event); } catch { /* listener error */ }
+  const listeners = getListenersMap().get(stream.sessionId);
+  if (listeners) {
+    for (const listener of listeners) {
+      try { listener(event); } catch { /* listener error */ }
+    }
   }
   // Also dispatch window event for AppShell
   if (typeof window !== 'undefined') {
@@ -175,7 +196,6 @@ export function startStream(params: StartStreamParams): void {
       sessionGrantedTools: [],
       activeAgents: [],
     },
-    listeners: existing?.listeners ?? new Set(),
     idleCheckTimer: null,
     lastEventTime: Date.now(),
     gcTimer: null,
@@ -229,6 +249,10 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
         provider_id: params.providerId,
         ...(params.files && params.files.length > 0 ? { files: params.files } : {}),
         ...(params.systemPromptAppend ? { systemPromptAppend: params.systemPromptAppend } : {}),
+        ...(params.autoTrigger ? { autoTrigger: true } : {}),
+        ...(params.effort ? { effort: params.effort } : {}),
+        ...(params.thinking ? { thinking: params.thinking } : {}),
+        ...(params.displayOverride ? { displayOverride: params.displayOverride } : {}),
       }),
       signal: stream.abortController.signal,
     });
@@ -390,10 +414,21 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
         }
         emit(stream, 'snapshot-updated');
       },
+      onRewindPoint: (sdkUserMessageId) => {
+        markActive();
+        // rewind points tracked in SSE stream; no local state needed beyond markActive
+        void sdkUserMessageId;
+      },
+      onKeepAlive: () => {
+        markActive();
       onError: (acc) => {
         markActive();
         stream.accumulatedText = acc;
         emit(stream, 'snapshot-updated');
+      },
+      onInitMeta: (meta) => {
+        markActive();
+        params.onInitMeta?.(meta);
       },
     });
 
@@ -472,6 +507,12 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
         stream.toolResultsArray = [];
         stream.toolOutputAccumulated = '';
         emit(stream, 'completed');
+        // Clear stale SDK session so next message starts fresh
+        fetch(`/api/chat/sessions/${encodeURIComponent(stream.sessionId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sdk_session_id: '' }),
+        }).catch(() => {});
         scheduleGC(stream);
       } else if (stream.toolTimeoutInfo) {
         // Tool timeout — auto-retry
@@ -564,7 +605,21 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
 export function stopStream(sessionId: string): void {
   const stream = getStreamsMap().get(sessionId);
   if (stream && stream.snapshot.phase === 'active') {
-    stream.abortController.abort();
+    // Try graceful interrupt first, fallback to abort
+    fetch('/api/chat/interrupt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    }).catch(() => {
+      // Interrupt failed, force abort
+    }).finally(() => {
+      // Always abort after a short delay to ensure cleanup
+      setTimeout(() => {
+        if (stream.snapshot.phase === 'active') {
+          stream.abortController.abort();
+        }
+      }, 2000);
+    });
   }
 }
 
@@ -600,7 +655,6 @@ export function subscribe(sessionId: string, listener: StreamEventListener): () 
         sessionGrantedTools: [],
         activeAgents: [],
       },
-      listeners: new Set(),
       idleCheckTimer: null,
       lastEventTime: 0,
       gcTimer: null,
@@ -618,10 +672,19 @@ export function subscribe(sessionId: string, listener: StreamEventListener): () 
     map.set(sessionId, stream);
   }
 
-  stream.listeners.add(listener);
+  const listenersMap = getListenersMap();
+  let listeners = listenersMap.get(sessionId);
+  if (!listeners) {
+    listeners = new Set();
+    listenersMap.set(sessionId, listeners);
+  }
+  listeners.add(listener);
 
   return () => {
-    stream!.listeners.delete(listener);
+    listeners!.delete(listener);
+    if (listeners!.size === 0) {
+      listenersMap.delete(sessionId);
+    }
   };
 }
 
@@ -640,6 +703,12 @@ export function getSnapshot(sessionId: string): SessionStreamSnapshot | null {
 export function isStreamActive(sessionId: string): boolean {
   const stream = getStreamsMap().get(sessionId);
   return stream?.snapshot.phase === 'active' || false;
+}
+
+export function getRewindPoints(_sessionId: string): Array<{ userMessageId: string }> {
+  // Rewind points are tracked via the rewind_point SSE events consumed by the client.
+  // Stream-session-manager does not maintain a local rewindPoints buffer.
+  return [];
 }
 
 export function getActiveSessionIds(): string[] {
@@ -750,7 +819,7 @@ export function clearSnapshot(sessionId: string): void {
   const stream = getStreamsMap().get(sessionId);
   if (stream && stream.snapshot.phase !== 'active') {
     if (stream.gcTimer) clearTimeout(stream.gcTimer);
-    // Keep the listeners entry but reset the snapshot
+    // Reset the snapshot (listeners are in a separate registry)
     stream.snapshot = {
       ...stream.snapshot,
       startedAt: 0,

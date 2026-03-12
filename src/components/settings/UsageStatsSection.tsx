@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { getLocalDateString } from "@/lib/utils";
 import {
   BarChart,
   Bar,
@@ -11,6 +12,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import { Button } from "@/components/ui/button";
 import { useTranslation } from "@/hooks/useTranslation";
 
 // ---------------------------------------------------------------------------
@@ -234,17 +236,17 @@ export function UsageStatsSection() {
       {/* Day range selector */}
       <div className="flex items-center gap-2">
         {RANGE_OPTIONS.map((opt) => (
-          <button
+          <Button
             key={opt.days}
+            variant={days === opt.days ? "default" : "secondary"}
+            size="sm"
             onClick={() => setDays(opt.days)}
-            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-              days === opt.days
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:bg-accent"
+            className={`px-3 py-1 text-xs font-medium ${
+              days !== opt.days ? "text-muted-foreground hover:bg-accent" : ""
             }`}
           >
             {opt.label}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -289,7 +291,7 @@ export function UsageStatsSection() {
         )}
 
         {error && (
-          <div className="flex h-64 items-center justify-center text-sm text-red-500">
+          <div className="flex h-64 items-center justify-center text-sm text-status-error-foreground">
             {error}
           </div>
         )}
@@ -430,7 +432,7 @@ function deriveChartData(daily: UsageStatsResponse["daily"], days: number): {
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    allDates.push(d.toISOString().slice(0, 10));
+    allDates.push(getLocalDateString(d));
   }
 
   // Format for recharts, filling missing dates with zeros

@@ -1,17 +1,16 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { HugeiconsIcon } from '@hugeicons/react';
 import {
-  Download04Icon,
-  Delete02Icon,
-  PaintBrush01Icon,
-  Message02Icon,
-  ArrowLeft01Icon,
-  ArrowRight01Icon,
-  FavouriteIcon,
-} from '@hugeicons/core-free-icons';
+  DownloadSimple,
+  Trash,
+  PaintBrush,
+  ChatCircle,
+  ArrowLeft,
+  ArrowRight,
+  Heart,
+} from '@/components/ui/icon';
 import { cn, parseDBDate } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -69,11 +68,13 @@ export function GalleryDetail({
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // Reset image index when item changes
-  useEffect(() => {
+  // Reset state when item changes (React-recommended ref pattern instead of useEffect+setState)
+  const prevItemId = useRef(item?.id);
+  if (item?.id !== prevItemId.current) {
+    prevItemId.current = item?.id;
     setCurrentImageIndex(0);
     setConfirmDelete(false);
-  }, [item?.id]);
+  }
 
   const handleDownload = useCallback(async () => {
     if (!item) return;
@@ -139,20 +140,22 @@ export function GalleryDetail({
 
             {hasMultipleImages && (
               <>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={() => setCurrentImageIndex((i) => (i > 0 ? i - 1 : item.images.length - 1))}
-                  className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-1.5 text-white hover:bg-black/70 transition z-10"
+                  className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 text-white hover:bg-black/70 z-10"
                 >
-                  <HugeiconsIcon icon={ArrowLeft01Icon} className="h-5 w-5" />
-                </button>
-                <button
-                  type="button"
+                  <ArrowLeft size={20} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={() => setCurrentImageIndex((i) => (i < item.images.length - 1 ? i + 1 : 0))}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-1.5 text-white hover:bg-black/70 transition z-10"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 text-white hover:bg-black/70 z-10"
                 >
-                  <HugeiconsIcon icon={ArrowRight01Icon} className="h-5 w-5" />
-                </button>
+                  <ArrowRight size={20} />
+                </Button>
                 <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-2 py-0.5 text-xs text-white z-10">
                   {currentImageIndex + 1} / {item.images.length}
                 </div>
@@ -163,25 +166,25 @@ export function GalleryDetail({
           {/* Right: Info panel */}
           <div className="flex-1 min-w-0 border-l border-border/50 overflow-y-auto p-6 space-y-5">
             {/* Favorite button */}
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => onToggleFavorite?.(item.id)}
               className={cn(
-                'flex items-center gap-1.5 text-sm transition-colors',
+                'gap-1.5',
                 item.favorited
-                  ? 'text-red-500'
-                  : 'text-muted-foreground hover:text-red-500',
+                  ? 'text-status-error-foreground'
+                  : 'text-muted-foreground hover:text-status-error-foreground',
               )}
             >
-              <HugeiconsIcon
-                icon={FavouriteIcon}
-                className="h-5 w-5"
-                fill={item.favorited ? 'currentColor' : 'none'}
+              <Heart
+                size={20}
+                weight={item.favorited ? 'fill' : 'regular'}
               />
               {item.favorited
                 ? t('gallery.removeFromFavorites' as TranslationKey)
                 : t('gallery.addToFavorites' as TranslationKey)}
-            </button>
+            </Button>
 
             {/* Prompt */}
             <div>
@@ -195,7 +198,7 @@ export function GalleryDetail({
             <div className="flex items-center gap-1.5 flex-wrap">
               {item.model && (
                 <Badge variant="secondary" className="text-[10px] gap-1">
-                  <HugeiconsIcon icon={PaintBrush01Icon} className="h-3 w-3" />
+                  <PaintBrush size={12} />
                   {item.model}
                 </Badge>
               )}
@@ -250,12 +253,12 @@ export function GalleryDetail({
                     router.push(`/chat/${item.session_id}`);
                   }}
                 >
-                  <HugeiconsIcon icon={Message02Icon} className="h-3.5 w-3.5" />
+                  <ChatCircle size={14} />
                   {t('gallery.openChat' as TranslationKey)}
                 </Button>
               )}
               <Button variant="outline" size="sm" onClick={handleDownload}>
-                <HugeiconsIcon icon={Download04Icon} className="h-3.5 w-3.5" />
+                <DownloadSimple size={14} />
                 {t('gallery.download' as TranslationKey)}
               </Button>
               <div className="ml-auto">
@@ -264,7 +267,7 @@ export function GalleryDetail({
                   size="sm"
                   onClick={handleDelete}
                 >
-                  <HugeiconsIcon icon={Delete02Icon} className="h-3.5 w-3.5" />
+                  <Trash size={14} />
                   {confirmDelete
                     ? t('gallery.confirmDelete' as TranslationKey)
                     : t('gallery.delete' as TranslationKey)}

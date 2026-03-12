@@ -1,21 +1,13 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import Link from "next/link";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Delete02Icon,
-  Search01Icon,
-  Notification02Icon,
-  FileImportIcon,
-  Folder01Icon,
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  PlusSignIcon,
-  FolderOpenIcon,
-} from "@hugeicons/core-free-icons";
-import { Columns2, X } from "lucide-react";
+  MagnifyingGlass,
+  FileArrowDown,
+  Plus,
+  FolderOpen,
+} from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -24,14 +16,23 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn, parseDBDate } from "@/lib/utils";
 import { usePanel } from "@/hooks/usePanel";
 import { useSplit } from "@/hooks/useSplit";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useNativeFolderPicker } from "@/hooks/useNativeFolderPicker";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { ImportSessionDialog } from "./ImportSessionDialog";
+import { SessionListItem, SplitGroupSection } from "./SessionListItem";
+import { ProjectGroupHeader } from "./ProjectGroupHeader";
 import { FolderPicker } from "@/components/chat/FolderPicker";
+import { useAssistantWorkspace } from "@/hooks/useAssistantWorkspace";
+import {
+  formatRelativeTime,
+  groupSessionsByProject,
+  loadCollapsedProjects,
+  saveCollapsedProjects,
+  COLLAPSED_INITIALIZED_KEY,
+} from "./chat-list-utils";
 import type { ChatSession } from "@/types";
 
 interface ChatListPanelProps {
@@ -39,101 +40,13 @@ interface ChatListPanelProps {
   width?: number;
 }
 
-function formatRelativeTime(dateStr: string, t: (key: import('@/i18n').TranslationKey, params?: Record<string, string | number>) => string): string {
-  const date = parseDBDate(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  const diffHr = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHr / 24);
 
-  if (diffMin < 1) return t('chatList.justNow');
-  if (diffMin < 60) return t('chatList.minutesAgo', { n: diffMin });
-  if (diffHr < 24) return t('chatList.hoursAgo', { n: diffHr });
-  if (diffDay < 7) return t('chatList.daysAgo', { n: diffDay });
-  return date.toLocaleDateString();
-}
 
-const COLLAPSED_PROJECTS_KEY = "codepilot:collapsed-projects";
-const COLLAPSED_INITIALIZED_KEY = "codepilot:collapsed-initialized";
-const PROJECT_ALIASES_KEY = "codepilot:project-aliases";
-
-function loadProjectAliases(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(PROJECT_ALIASES_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {
-    // ignore
-  }
-  return {};
-}
-
-function saveProjectAliases(aliases: Record<string, string>) {
-  localStorage.setItem(PROJECT_ALIASES_KEY, JSON.stringify(aliases));
-}
-
-function loadCollapsedProjects(): Set<string> {
-  if (typeof window === 'undefined') return new Set();
-  try {
-    const raw = localStorage.getItem(COLLAPSED_PROJECTS_KEY);
-    if (raw) return new Set(JSON.parse(raw));
-  } catch {
-    // ignore
-  }
-  return new Set();
-}
-
-function saveCollapsedProjects(collapsed: Set<string>) {
-  localStorage.setItem(COLLAPSED_PROJECTS_KEY, JSON.stringify([...collapsed]));
-}
-
-interface ProjectGroup {
-  workingDirectory: string;
-  displayName: string;
-  sessions: ChatSession[];
-  latestUpdatedAt: number;
-}
-
-function groupSessionsByProject(
-  sessions: ChatSession[],
-  aliases: Record<string, string>,
-): ProjectGroup[] {
-  const map = new Map<string, ChatSession[]>();
-  for (const session of sessions) {
-    const key = session.working_directory || "";
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(session);
-  }
-
-  const groups: ProjectGroup[] = [];
-  for (const [wd, groupSessions] of map) {
-    groupSessions.sort(
-      (a, b) =>
-        parseDBDate(b.updated_at).getTime() - parseDBDate(a.updated_at).getTime()
-    );
-    const displayName =
-      aliases[wd] ||
-      (wd === ""
-        ? "No Project"
-        : groupSessions[0]?.project_name || wd.split("/").pop() || wd);
-    const latestUpdatedAt = parseDBDate(groupSessions[0].updated_at).getTime();
-    groups.push({
-      workingDirectory: wd,
-      displayName,
-      sessions: groupSessions,
-      latestUpdatedAt,
-    });
-  }
-
-  groups.sort((a, b) => b.latestUpdatedAt - a.latestUpdatedAt);
-  return groups;
-}
 
 export function ChatListPanel({ open, width }: ChatListPanelProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { streamingSessionId, pendingApprovalSessionId, activeStreamingSessions, pendingApprovalSessionIds, workingDirectory, sessionId: currentSessionId } = usePanel();
+  const { streamingSessionId, pendingApprovalSessionId, activeStreamingSessions, pendingApprovalSessionIds, workingDirectory } = usePanel();
   const { splitSessions, isSplitActive, activeColumnId, addToSplit, removeFromSplit, setActiveColumn, isInSplit } = useSplit();
   const { t } = useTranslation();
   const { isElectron, openNativePicker } = useNativeFolderPicker();
@@ -148,12 +61,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   );
   const [hoveredFolder, setHoveredFolder] = useState<string | null>(null);
   const [creatingChat, setCreatingChat] = useState(false);
-  const [projectAliases, setProjectAliases] = useState<Record<string, string>>(
-    () => loadProjectAliases()
-  );
-  const [renamingProject, setRenamingProject] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const renameInputRef = useRef<HTMLInputElement>(null);
+  const { workspacePath } = useAssistantWorkspace();
 
   /** Read current model + provider_id from localStorage for new session creation */
   const getCurrentModelAndProvider = useCallback(() => {
@@ -232,7 +140,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
     } finally {
       setCreatingChat(false);
     }
-  }, [router, workingDirectory, openFolderPicker]);
+  }, [router, workingDirectory, openFolderPicker, getCurrentModelAndProvider]);
 
   const toggleProject = useCallback((wd: string) => {
     setCollapsedProjects((prev) => {
@@ -242,32 +150,6 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       saveCollapsedProjects(next);
       return next;
     });
-  }, []);
-
-  const startRenaming = useCallback((wd: string, currentName: string) => {
-    setRenamingProject(wd);
-    setRenameValue(currentName);
-    setTimeout(() => renameInputRef.current?.select(), 0);
-  }, []);
-
-  const commitRename = useCallback(() => {
-    if (renamingProject === null) return;
-    const trimmed = renameValue.trim();
-    setProjectAliases((prev) => {
-      const next = { ...prev };
-      if (trimmed) {
-        next[renamingProject] = trimmed;
-      } else {
-        delete next[renamingProject];
-      }
-      saveProjectAliases(next);
-      return next;
-    });
-    setRenamingProject(null);
-  }, [renamingProject, renameValue]);
-
-  const cancelRename = useCallback(() => {
-    setRenamingProject(null);
   }, []);
 
   // AbortController ref for cancelling in-flight requests
@@ -402,8 +284,8 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   }, [sessions, searchQuery, isSplitActive, splitSessionIds]);
 
   const projectGroups = useMemo(
-    () => groupSessionsByProject(filteredSessions, projectAliases),
-    [filteredSessions, projectAliases]
+    () => groupSessionsByProject(filteredSessions),
+    [filteredSessions]
   );
 
   // On first use, auto-collapse all project groups except the most recent one
@@ -422,11 +304,11 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
 
   return (
     <aside
-      className="hidden h-full shrink-0 flex-col overflow-hidden bg-sidebar lg:flex"
+      className="hidden h-full shrink-0 flex-col overflow-hidden bg-sidebar/80 backdrop-blur-xl lg:flex"
       style={{ width: width ?? 240 }}
     >
       {/* Header - extra top padding for macOS traffic lights */}
-      <div className="flex h-12 shrink-0 items-center px-3 mt-5">
+      <div className="flex h-12 shrink-0 items-center justify-between px-3 mt-5">
         <ConnectionStatus />
       </div>
 
@@ -439,7 +321,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
           disabled={creatingChat}
           onClick={handleNewChat}
         >
-          <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
+          <Plus size={14} />
           {t('chatList.newConversation')}
         </Button>
         <Tooltip>
@@ -450,7 +332,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
               className="h-8 w-8 shrink-0"
               onClick={() => openFolderPicker()}
             >
-              <HugeiconsIcon icon={FolderOpenIcon} className="h-3.5 w-3.5" />
+              <FolderOpen size={14} />
               <span className="sr-only">{t('chatList.addProjectFolder')}</span>
             </Button>
           </TooltipTrigger>
@@ -461,9 +343,9 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       {/* Search */}
       <div className="px-3 pb-2">
         <div className="relative">
-          <HugeiconsIcon
-            icon={Search01Icon}
-            className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground"
+          <MagnifyingGlass
+            size={12}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
           />
           <Input
             placeholder={t('chatList.searchSessions')}
@@ -482,7 +364,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
           className="w-full justify-start gap-2 h-7 text-xs text-muted-foreground hover:text-foreground"
           onClick={() => setImportDialogOpen(true)}
         >
-          <HugeiconsIcon icon={FileImportIcon} className="h-3 w-3" />
+          <FileArrowDown size={12} />
           {t('chatList.importFromCli')}
         </Button>
       </div>
@@ -499,66 +381,17 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
 
           {/* Split group section */}
           {isSplitActive && (
-            <div className="mb-2 rounded-lg border border-border/60 bg-muted/30 p-1.5">
-              <div className="flex items-center gap-1.5 px-2 py-1">
-                <Columns2 className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs font-medium text-muted-foreground">{t('split.splitGroup')}</span>
-              </div>
-              <div className="mt-0.5 flex flex-col gap-0.5">
-                {splitSessions.map((session) => {
-                  const isActiveInSplit = activeColumnId === session.sessionId;
-                  const isSessionStreaming =
-                    activeStreamingSessions.has(session.sessionId) || streamingSessionId === session.sessionId;
-                  const needsApproval =
-                    pendingApprovalSessionIds.has(session.sessionId) || pendingApprovalSessionId === session.sessionId;
-
-                  return (
-                    <div
-                      key={session.sessionId}
-                      className={cn(
-                        "group relative flex items-center gap-1.5 rounded-md pl-7 pr-2 py-1.5 transition-all duration-150 min-w-0 cursor-pointer",
-                        isActiveInSplit
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-sidebar-foreground hover:bg-accent/50"
-                      )}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setActiveColumn(session.sessionId);
-                      }}
-                    >
-                      {isSessionStreaming && (
-                        <span className="relative flex h-2 w-2 shrink-0">
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                          <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-                        </span>
-                      )}
-                      {needsApproval && (
-                        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
-                          <HugeiconsIcon icon={Notification02Icon} className="h-2.5 w-2.5 text-amber-500" />
-                        </span>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <span className="line-clamp-1 text-[13px] font-medium leading-tight break-all">
-                          {session.title}
-                        </span>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        className="h-4 w-4 shrink-0 text-muted-foreground/60 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeFromSplit(session.sessionId);
-                        }}
-                      >
-                        <X className="h-2.5 w-2.5" />
-                        <span className="sr-only">{t('split.closeSplit')}</span>
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <SplitGroupSection
+              splitSessions={splitSessions}
+              activeColumnId={activeColumnId}
+              streamingSessionId={streamingSessionId}
+              pendingApprovalSessionId={pendingApprovalSessionId}
+              activeStreamingSessions={activeStreamingSessions}
+              pendingApprovalSessionIds={pendingApprovalSessionIds}
+              t={t}
+              setActiveColumn={setActiveColumn}
+              removeFromSplit={removeFromSplit}
+            />
           )}
 
           {filteredSessions.length === 0 && (!isSplitActive || splitSessions.length === 0) ? (
@@ -575,208 +408,48 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
               return (
                 <div key={group.workingDirectory || "__no_project"} className="mt-1 first:mt-0">
                   {/* Folder header */}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div
-                        className={cn(
-                          "flex items-center gap-1 rounded-md px-2 py-1 cursor-pointer select-none transition-colors",
-                          "hover:bg-accent/50"
-                        )}
-                        onClick={() => {
-                          if (renamingProject !== group.workingDirectory) {
-                            toggleProject(group.workingDirectory);
-                          }
-                        }}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          if (group.workingDirectory) {
-                            startRenaming(group.workingDirectory, group.displayName);
-                          }
-                        }}
-                        onContextMenu={(e) => {
-                          if (group.workingDirectory) {
-                            e.preventDefault();
-                            startRenaming(group.workingDirectory, group.displayName);
-                          }
-                        }}
-                        onMouseEnter={() =>
-                          setHoveredFolder(group.workingDirectory)
-                        }
-                        onMouseLeave={() => setHoveredFolder(null)}
-                      >
-                    <HugeiconsIcon
-                      icon={isCollapsed ? ArrowRight01Icon : ArrowDown01Icon}
-                      className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                    />
-                    <HugeiconsIcon
-                      icon={isCollapsed ? Folder01Icon : FolderOpenIcon}
-                      className="h-4 w-4 shrink-0 text-muted-foreground"
-                    />
-                    {renamingProject === group.workingDirectory ? (
-                      <input
-                        ref={renameInputRef}
-                        className="flex-1 min-w-0 bg-transparent text-[13px] font-medium text-sidebar-foreground outline-none border-b border-primary/50 py-0"
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onBlur={commitRename}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitRename();
-                          if (e.key === "Escape") cancelRename();
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        autoFocus
-                      />
-                    ) : (
-                      <span className="flex-1 truncate text-[13px] font-medium text-sidebar-foreground">
-                        {group.displayName}
-                      </span>
-                    )}
-                    {/* New chat in project button (on hover) */}
-                    {group.workingDirectory !== "" && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            className={cn(
-                              "h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground transition-opacity",
-                              isFolderHovered ? "opacity-100" : "opacity-0"
-                            )}
-                            tabIndex={isFolderHovered ? 0 : -1}
-                            onClick={(e) =>
-                              handleCreateSessionInProject(
-                                e,
-                                group.workingDirectory
-                              )
-                            }
-                          >
-                            <HugeiconsIcon
-                              icon={PlusSignIcon}
-                              className="h-3.5 w-3.5"
-                            />
-                            <span className="sr-only">
-                              New chat in {group.displayName}
-                            </span>
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">
-                          New chat in {group.displayName}
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                  </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs">
-                      <p className="text-xs break-all">{group.workingDirectory || 'No Project'}</p>
-                      {group.workingDirectory && (
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                          Double-click to rename · Right-click to rename
-                        </p>
-                      )}
-                    </TooltipContent>
-                  </Tooltip>
+                  <ProjectGroupHeader
+                    workingDirectory={group.workingDirectory}
+                    displayName={group.displayName}
+                    isCollapsed={isCollapsed}
+                    isFolderHovered={isFolderHovered}
+                    isWorkspace={!!(workspacePath && group.workingDirectory === workspacePath)}
+                    onToggle={() => toggleProject(group.workingDirectory)}
+                    onMouseEnter={() => setHoveredFolder(group.workingDirectory)}
+                    onMouseLeave={() => setHoveredFolder(null)}
+                    onCreateSession={(e) => handleCreateSessionInProject(e, group.workingDirectory)}
+                  />
 
                   {/* Session items */}
                   {!isCollapsed && (
                     <div className="mt-0.5 flex flex-col gap-0.5">
                       {group.sessions.map((session) => {
                         const isActive = pathname === `/chat/${session.id}`;
-                        const isHovered = hoveredSession === session.id;
-                        const isDeleting = deletingSession === session.id;
-                        const isSessionStreaming =
-                          activeStreamingSessions.has(session.id) || streamingSessionId === session.id;
-                        const needsApproval =
-                          pendingApprovalSessionIds.has(session.id) || pendingApprovalSessionId === session.id;
                         const canSplit = !isActive && !isInSplit(session.id);
 
                         return (
-                          <div
+                          <SessionListItem
                             key={session.id}
-                            className="group relative"
-                            onMouseEnter={() =>
-                              setHoveredSession(session.id)
-                            }
+                            session={session}
+                            isActive={isActive}
+                            isHovered={hoveredSession === session.id}
+                            isDeleting={deletingSession === session.id}
+                            isSessionStreaming={activeStreamingSessions.has(session.id) || streamingSessionId === session.id}
+                            needsApproval={pendingApprovalSessionIds.has(session.id) || pendingApprovalSessionId === session.id}
+                            canSplit={canSplit}
+                            formatRelativeTime={formatRelativeTime}
+                            t={t}
+                            onMouseEnter={() => setHoveredSession(session.id)}
                             onMouseLeave={() => setHoveredSession(null)}
-                          >
-                            <Link
-                              href={`/chat/${session.id}`}
-                              className={cn(
-                                "flex items-center gap-1.5 rounded-md pl-2 pr-2 py-1.5 transition-all duration-150 min-w-0",
-                                isActive
-                                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                                  : "text-sidebar-foreground hover:bg-accent/50"
-                              )}
-                            >
-                              {/* Left icon area — always same size, swap content via opacity */}
-                              <span className="relative flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                                {/* Split icon: visible on hover when splittable */}
-                                {canSplit && (
-                                  <button
-                                    className={cn(
-                                      "absolute inset-0 flex items-center justify-center text-muted-foreground hover:text-foreground transition-opacity",
-                                      isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
-                                    )}
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      addToSplit({
-                                        sessionId: session.id,
-                                        title: session.title,
-                                        workingDirectory: session.working_directory || "",
-                                        projectName: session.project_name || "",
-                                        mode: session.mode,
-                                      });
-                                    }}
-                                  >
-                                    <Columns2 className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                                {/* Streaming indicator: hidden when hover shows split icon */}
-                                {isSessionStreaming && (
-                                  <span className={cn(
-                                    "relative flex h-2 w-2 transition-opacity",
-                                    isHovered && canSplit ? "opacity-0" : "opacity-100"
-                                  )}>
-                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                                    <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-                                  </span>
-                                )}
-                                {/* Approval indicator: hidden when hover shows split icon */}
-                                {needsApproval && !isSessionStreaming && (
-                                  <span className={cn(
-                                    "flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500/10 transition-opacity",
-                                    isHovered && canSplit ? "opacity-0" : "opacity-100"
-                                  )}>
-                                    <HugeiconsIcon icon={Notification02Icon} className="h-2.5 w-2.5 text-amber-500" />
-                                  </span>
-                                )}
-                              </span>
-                              <div className="flex-1 min-w-0">
-                                <span className="line-clamp-1 text-[13px] font-medium leading-tight break-all">
-                                  {session.title}
-                                </span>
-                              </div>
-                              {/* Right area — fixed width, time and delete stacked with opacity */}
-                              <div className="relative w-[38px] h-4 shrink-0">
-                                <span className={cn(
-                                  "absolute inset-0 flex items-center justify-end text-[11px] text-muted-foreground/40 truncate transition-opacity",
-                                  (isHovered || isDeleting) ? "opacity-0" : "opacity-100"
-                                )}>
-                                  {formatRelativeTime(session.updated_at, t)}
-                                </span>
-                                <button
-                                  className={cn(
-                                    "absolute inset-0 flex items-center justify-end text-muted-foreground/60 hover:text-destructive transition-opacity",
-                                    (isHovered || isDeleting) ? "opacity-100" : "opacity-0 pointer-events-none"
-                                  )}
-                                  onClick={(e) => handleDeleteSession(e, session.id)}
-                                  disabled={isDeleting}
-                                >
-                                  <HugeiconsIcon icon={Delete02Icon} className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                            </Link>
-                          </div>
+                            onDelete={handleDeleteSession}
+                            onAddToSplit={(s) => addToSplit({
+                              sessionId: s.id,
+                              title: s.title,
+                              workingDirectory: s.working_directory || "",
+                              projectName: s.project_name || "",
+                              mode: s.mode,
+                            })}
+                          />
                         );
                       })}
                     </div>
@@ -807,6 +480,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
         onOpenChange={setFolderPickerOpen}
         onSelect={handleFolderSelect}
       />
+
     </aside>
   );
 }

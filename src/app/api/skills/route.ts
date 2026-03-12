@@ -4,12 +4,14 @@ import path from "path";
 import os from "os";
 import crypto from "crypto";
 import { CLAUDE_GLOBAL_DIR, CLAUDE_PROJECT_DIR } from "@/lib/platform";
+import type { SkillKind } from "@/types";
 
 interface SkillFile {
   name: string;
   description: string;
   content: string;
-  source: "global" | "project" | "plugin" | "installed";
+  source: "global" | "project" | "plugin" | "installed" | "sdk";
+  kind: SkillKind;
   installedSource?: "agents" | "claude";
   filePath: string;
 }
@@ -87,6 +89,7 @@ function scanProjectSkills(dir: string): SkillFile[] {
         description,
         content,
         source: "project",
+        kind: "agent_skill",
         filePath: skillMdPath,
       });
     }
@@ -178,6 +181,7 @@ function scanInstalledSkills(
         description,
         content,
         source: "installed",
+        kind: "agent_skill",
         installedSource,
         contentHash,
         filePath: skillMdPath,
@@ -257,7 +261,7 @@ function scanDirectory(
       const description = firstLine.startsWith("#")
         ? firstLine.replace(/^#+\s*/, "")
         : firstLine || `Skill: /${name}`;
-      skills.push({ name, description, content, source, filePath });
+      skills.push({ name, description, content, source, kind: "slash_command", filePath });
     }
   } catch {
     // ignore read errors
@@ -320,6 +324,30 @@ export async function GET(request: NextRequest) {
 
     const all = [...globalSkills, ...projectSkills, ...dedupedProjectSkills, ...installedSkills, ...pluginSkills];
     console.log(`[skills] Found: global=${globalSkills.length}, project=${projectSkills.length}, projectSkills=${dedupedProjectSkills.length}, installed=${installedSkills.length}, plugin=${pluginSkills.length}`);
+
+    // Merge SDK slash commands if available
+    try {
+      const { getCachedCommands } = await import('@/lib/agent-sdk-capabilities');
+      const sdkCommands = getCachedCommands('env');
+      if (sdkCommands.length > 0) {
+        const existingNames = new Set(all.map(s => s.name));
+        for (const cmd of sdkCommands) {
+          if (!existingNames.has(cmd.name)) {
+            all.push({
+              name: cmd.name,
+              description: cmd.description || `SDK command: /${cmd.name}`,
+              content: '', // SDK commands don't have local content
+              source: 'sdk',
+              kind: 'sdk_command',
+              filePath: '',
+            });
+          }
+        }
+        console.log(`[skills] Added ${sdkCommands.length} SDK commands (${sdkCommands.filter(c => !existingNames.has(c.name)).length} unique)`);
+      }
+    } catch {
+      // SDK capabilities not available, skip
+    }
 
     return NextResponse.json({ skills: all });
   } catch (error) {

@@ -8,8 +8,8 @@ import {
   MessageResponse,
 } from '@/components/ai-elements/message';
 import { ToolActionsGroup } from '@/components/ai-elements/tool-actions-group';
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Copy01Icon, Tick01Icon, ArrowDown01Icon, ArrowUp01Icon } from "@hugeicons/core-free-icons";
+import { Button } from "@/components/ui/button";
+import { Copy, Check, CaretDown, CaretUp } from "@/components/ui/icon";
 import { FileAttachmentDisplay } from './FileAttachmentDisplay';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
 import { ImageGenCard } from './ImageGenCard';
@@ -281,18 +281,19 @@ function CopyButton({ text }: { text: string }) {
   }, [text]);
 
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="sm"
       onClick={handleCopy}
-      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted transition-colors"
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs text-muted-foreground/60 hover:text-muted-foreground h-auto"
       title="Copy"
     >
       {copied ? (
-        <HugeiconsIcon icon={Tick01Icon} className="h-3 w-3 text-green-500" />
+        <Check size={12} className="text-status-success-foreground" />
       ) : (
-        <HugeiconsIcon icon={Copy01Icon} className="h-3 w-3" />
+        <Copy size={12} />
       )}
-    </button>
+    </Button>
   );
 }
 
@@ -340,11 +341,6 @@ export const MessageItem = memo(function MessageItem({ message }: MessageItemPro
     return { files: [] as FileAttachment[], displayText: text };
   }, [text, isUser]);
 
-  // Hide image-gen system notices — they exist in DB for Claude's context but shouldn't render
-  if (isUser && message.content.startsWith('[__IMAGE_GEN_NOTICE__')) {
-    return null;
-  }
-
   useEffect(() => {
     if (isUser && contentRef.current) {
       setIsOverflowing(contentRef.current.scrollHeight > COLLAPSE_HEIGHT);
@@ -360,6 +356,11 @@ export const MessageItem = memo(function MessageItem({ message }: MessageItemPro
       return null;
     }
   }, [message.token_usage]);
+
+  // Hide image-gen system notices — they exist in DB for Claude's context but shouldn't render
+  if (isUser && message.content.startsWith('[__IMAGE_GEN_NOTICE__')) {
+    return null;
+  }
 
   const timestamp = parseDBDate(message.created_at).toLocaleTimeString([], {
     hour: '2-digit',
@@ -406,23 +407,24 @@ export const MessageItem = memo(function MessageItem({ message }: MessageItemPro
                 <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-secondary to-transparent pointer-events-none" />
               )}
               {isOverflowing && (
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className="relative z-10 flex items-center gap-1 mt-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  className="relative z-10 flex items-center gap-1 mt-1 text-xs text-muted-foreground hover:text-foreground h-auto px-1 py-0.5"
                 >
                   {isExpanded ? (
                     <>
-                      <HugeiconsIcon icon={ArrowUp01Icon} className="h-3 w-3" />
+                      <CaretUp size={12} />
                       <span>收起</span>
                     </>
                   ) : (
                     <>
-                      <HugeiconsIcon icon={ArrowDown01Icon} className="h-3 w-3" />
+                      <CaretDown size={12} />
                       <span>展开</span>
                     </>
                   )}
-                </button>
+                </Button>
               )}
             </div>
           ) : <AssistantContent displayText={displayText} messageId={message.id} />
@@ -478,7 +480,7 @@ const AssistantContent = memo(function AssistantContent({ displayText, messageId
           <>
             {genResult.beforeText && <MessageResponse>{genResult.beforeText}</MessageResponse>}
             <div className="rounded-md border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-3">
-              <p className="text-sm text-red-600 dark:text-red-400">{result.error || 'Image generation failed'}</p>
+              <p className="text-sm text-status-error-foreground">{result.error || 'Image generation failed'}</p>
             </div>
             {genResult.afterText && <MessageResponse>{genResult.afterText}</MessageResponse>}
           </>

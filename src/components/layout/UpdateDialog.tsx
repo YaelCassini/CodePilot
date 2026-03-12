@@ -1,6 +1,7 @@
 "use client";
 
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -42,6 +43,7 @@ export function UpdateDialog() {
         {updateInfo.releaseNotes && (
           <div className="max-h-60 overflow-auto rounded-md border border-border/50 bg-muted/30 p-3 text-sm">
             <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
               components={{
                 h1: ({ children }) => <h3 className="mb-1 text-sm font-semibold">{children}</h3>,
                 h2: ({ children }) => <h3 className="mb-1 text-sm font-semibold">{children}</h3>,
@@ -51,12 +53,24 @@ export function UpdateDialog() {
                 ol: ({ children }) => <ol className="mb-2 list-decimal pl-4 text-sm">{children}</ol>,
                 li: ({ children }) => <li className="mb-0.5">{children}</li>,
                 a: ({ href, children }) => (
-                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">
+                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">
                     {children}
                   </a>
                 ),
                 code: ({ children }) => (
                   <code className="rounded bg-muted px-1 py-0.5 text-xs">{children}</code>
+                ),
+                table: ({ children }) => (
+                  <table className="mb-2 w-full border-collapse text-xs">{children}</table>
+                ),
+                thead: ({ children }) => (
+                  <thead className="border-b border-border">{children}</thead>
+                ),
+                th: ({ children }) => (
+                  <th className="px-2 py-1 text-left font-medium">{children}</th>
+                ),
+                td: ({ children }) => (
+                  <td className="px-2 py-1 border-t border-border/30">{children}</td>
                 ),
               }}
             >
@@ -74,7 +88,7 @@ export function UpdateDialog() {
           <div className="space-y-1">
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-blue-500 transition-all"
+                className="h-full rounded-full bg-primary transition-all"
                 style={{ width: `${Math.min(downloadProgress!, 100)}%` }}
               />
             </div>
@@ -85,7 +99,7 @@ export function UpdateDialog() {
         )}
 
         {updateInfo.lastError && (
-          <p className="rounded-md border border-red-500/20 bg-red-500/10 px-2 py-1 text-xs text-red-600 dark:text-red-400">
+          <p className="rounded-md border border-status-error-border bg-status-error-muted px-2 py-1 text-xs text-status-error-foreground">
             {updateInfo.lastError}
           </p>
         )}

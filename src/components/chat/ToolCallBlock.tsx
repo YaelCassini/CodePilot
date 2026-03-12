@@ -1,22 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { HugeiconsIcon } from "@hugeicons/react";
-import type { IconSvgElement } from "@hugeicons/react";
-import {
-  File01Icon,
-  FileEditIcon,
-  CommandLineIcon,
-  Search01Icon,
-  Wrench01Icon,
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  Loading02Icon,
-  CheckmarkCircle02Icon,
-  CancelCircleIcon,
-} from "@hugeicons/core-free-icons";
+import { useState, createElement } from 'react';
+import { type Icon, File, NotePencil, Terminal, MagnifyingGlass, Wrench, CaretDown, CaretRight, SpinnerGap, CheckCircle, XCircle } from "@/components/ui/icon";
 import { cn } from '@/lib/utils';
-import { CodeBlock } from './CodeBlock';
+import { Button } from '@/components/ui/button';
+import { CodeBlock } from '@/components/ai-elements/code-block';
 
 type ToolStatus = 'running' | 'success' | 'error';
 
@@ -44,13 +32,13 @@ function getToolCategory(name: string): 'read' | 'write' | 'bash' | 'search' | '
   return 'other';
 }
 
-function getToolIcon(category: ReturnType<typeof getToolCategory>): IconSvgElement {
+function getToolIcon(category: ReturnType<typeof getToolCategory>): Icon {
   switch (category) {
-    case 'read': return File01Icon;
-    case 'write': return FileEditIcon;
-    case 'bash': return CommandLineIcon;
-    case 'search': return Search01Icon;
-    case 'other': return Wrench01Icon;
+    case 'read': return File;
+    case 'write': return NotePencil;
+    case 'bash': return Terminal;
+    case 'search': return MagnifyingGlass;
+    case 'other': return Wrench;
   }
 }
 
@@ -100,14 +88,14 @@ function StatusIndicator({ status }: { status: ToolStatus }) {
     case 'running':
       return (
         <span className="relative flex h-3.5 w-3.5 items-center justify-center">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-30" />
-          <HugeiconsIcon icon={Loading02Icon} className="relative h-3.5 w-3.5 animate-spin text-blue-500" />
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-30" />
+          <SpinnerGap size={14} className="relative animate-spin text-primary" />
         </span>
       );
     case 'success':
-      return <HugeiconsIcon icon={CheckmarkCircle02Icon} className="h-3.5 w-3.5 text-green-500" />;
+      return <CheckCircle size={14} className="text-status-success-foreground" />;
     case 'error':
-      return <HugeiconsIcon icon={CancelCircleIcon} className="h-3.5 w-3.5 text-red-500" />;
+      return <XCircle size={14} className="text-status-error-foreground" />;
   }
 }
 
@@ -128,13 +116,13 @@ function renderDiff(input: unknown): React.ReactNode | null {
     <div className="my-2 rounded-md border border-zinc-700/50 overflow-hidden text-xs font-mono">
       {oldLines.length > 0 && oldLines.map((line, i) => (
         <div key={`old-${i}`} className="flex bg-red-950/30 text-red-300">
-          <span className="select-none w-8 text-right pr-2 text-red-400/60 shrink-0">-</span>
+          <span className="select-none w-8 text-right pr-2 text-red-400/60 shrink-0">-</span>{/* lint-allow-raw-color */}
           <span className="px-2 whitespace-pre-wrap break-all">{line}</span>
         </div>
       ))}
       {newLines.length > 0 && newLines.map((line, i) => (
         <div key={`new-${i}`} className="flex bg-green-950/30 text-green-300">
-          <span className="select-none w-8 text-right pr-2 text-green-400/60 shrink-0">+</span>
+          <span className="select-none w-8 text-right pr-2 text-green-400/60 shrink-0">+</span>{/* lint-allow-raw-color */}
           <span className="px-2 whitespace-pre-wrap break-all">{line}</span>
         </div>
       ))}
@@ -152,7 +140,7 @@ export function ToolCallBlock({
 }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false);
   const category = getToolCategory(name);
-  const toolIconData = getToolIcon(category);
+  const toolIcon = getToolIcon(category);
   const summary = getToolSummary(name, input, category);
   const filePath = getFilePath(input);
 
@@ -173,7 +161,7 @@ export function ToolCallBlock({
             )}
             {!result && status === 'running' && (
               <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-                <HugeiconsIcon icon={Loading02Icon} className="h-3 w-3 animate-spin" />
+                <SpinnerGap size={12} className="animate-spin" />
                 Reading file...
               </div>
             )}
@@ -213,7 +201,7 @@ export function ToolCallBlock({
           <div className="space-y-2">
             {command && (
               <div className="rounded-md bg-black p-3 font-mono text-xs text-zinc-100 overflow-x-auto">
-                <span className="text-green-400 select-none">$ </span>
+                <span className="text-green-400 select-none">$ </span>{/* lint-allow-raw-color */}
                 <span className="whitespace-pre-wrap break-all">{command}</span>
               </div>
             )}
@@ -224,7 +212,7 @@ export function ToolCallBlock({
             )}
             {!result && status === 'running' && (
               <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-                <HugeiconsIcon icon={Loading02Icon} className="h-3 w-3 animate-spin" />
+                <SpinnerGap size={12} className="animate-spin" />
                 Executing...
               </div>
             )}
@@ -282,39 +270,40 @@ export function ToolCallBlock({
   };
 
   const statusBorderColor = {
-    running: 'border-blue-500/70',
-    success: 'border-green-500/50',
-    error: 'border-red-500/60',
+    running: 'border-primary/70',
+    success: 'border-status-success-border',
+    error: 'border-status-error-border',
   }[status];
 
   const statusBgColor = {
-    running: 'bg-blue-500/[0.03] dark:bg-blue-500/[0.05]',
+    running: 'bg-primary/[0.03] dark:bg-primary/[0.05]',
     success: 'bg-transparent',
-    error: 'bg-red-500/[0.03] dark:bg-red-500/[0.05]',
+    error: 'bg-status-error-muted',
   }[status];
 
   return (
     <div className={cn("my-0.5 border-l-2 rounded-r-md overflow-hidden transition-colors duration-300", statusBorderColor, statusBgColor)}>
-      <button
+      <Button
+        variant="ghost"
         onClick={() => setExpanded(!expanded)}
         className={cn(
-          "flex w-full items-center gap-2 px-3 py-1 text-left text-sm hover:bg-muted/30 transition-colors",
+          "flex w-full items-center gap-2 px-3 py-1 text-left text-sm hover:bg-muted/30 h-auto rounded-none justify-start",
           expanded && "border-b border-border/30"
         )}
       >
         {expanded ? (
-          <HugeiconsIcon icon={ArrowDown01Icon} className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <CaretDown size={12} className="shrink-0 text-muted-foreground" />
         ) : (
-          <HugeiconsIcon icon={ArrowRight01Icon} className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <CaretRight size={12} className="shrink-0 text-muted-foreground" />
         )}
-        <HugeiconsIcon icon={toolIconData} className={cn(
-          "h-3.5 w-3.5 shrink-0",
-          category === 'read' && "text-blue-500",
-          category === 'write' && "text-amber-500",
-          category === 'bash' && "text-green-500",
-          category === 'search' && "text-indigo-500",
-          category === 'other' && "text-zinc-500",
-        )} />
+        {createElement(toolIcon, { size: 14, className: cn(
+          "shrink-0",
+          category === 'read' && "text-primary",
+          category === 'write' && "text-status-warning-foreground",
+          category === 'bash' && "text-status-success-foreground",
+          category === 'search' && "text-primary",
+          category === 'other' && "text-muted-foreground",
+        ) })}
         <span className="font-mono text-xs truncate flex-1 text-foreground/80">{summary}</span>
         <div className="flex items-center gap-2 shrink-0 ml-2">
           {duration !== undefined && (
@@ -322,7 +311,7 @@ export function ToolCallBlock({
           )}
           <StatusIndicator status={status} />
         </div>
-      </button>
+      </Button>
       <div className={cn(
         "grid transition-[grid-template-rows] duration-200 ease-in-out",
         expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"

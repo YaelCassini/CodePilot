@@ -1,16 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { HugeiconsIcon } from '@hugeicons/react';
-import {
-  PaintBrush01Icon,
-  SortingDownIcon,
-  FilterIcon,
-  Loading02Icon,
-  FavouriteIcon,
-} from '@hugeicons/core-free-icons';
+import { PaintBrush, SortDescending, Funnel, SpinnerGap, Heart } from '@/components/ui/icon';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { GalleryGrid, type GalleryItem } from '@/components/gallery/GalleryGrid';
 import { GalleryDetail } from '@/components/gallery/GalleryDetail';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -153,10 +147,10 @@ export default function GalleryPage() {
               size="sm"
               onClick={() => setFavoritesOnly((v) => !v)}
             >
-              <HugeiconsIcon
-                icon={FavouriteIcon}
-                className={cn('h-3.5 w-3.5', favoritesOnly && 'text-red-500')}
-                fill={favoritesOnly ? 'currentColor' : 'none'}
+              <Heart
+                size={14}
+                className={cn(favoritesOnly && 'text-status-error-foreground')}
+                weight={favoritesOnly ? 'fill' : 'regular'}
               />
               {t('gallery.favoritesOnly' as TranslationKey)}
             </Button>
@@ -167,7 +161,7 @@ export default function GalleryPage() {
               size="sm"
               onClick={() => setShowFilters(!showFilters)}
             >
-              <HugeiconsIcon icon={FilterIcon} className="h-3.5 w-3.5" />
+              <Funnel size={14} />
               {t('gallery.filters' as TranslationKey)}
             </Button>
 
@@ -177,7 +171,7 @@ export default function GalleryPage() {
               size="sm"
               onClick={() => setSort((s) => (s === 'newest' ? 'oldest' : 'newest'))}
             >
-              <HugeiconsIcon icon={SortingDownIcon} className="h-3.5 w-3.5" />
+              <SortDescending size={14} />
               {sort === 'newest'
                 ? t('gallery.newestFirst' as TranslationKey)
                 : t('gallery.oldestFirst' as TranslationKey)}
@@ -193,20 +187,20 @@ export default function GalleryPage() {
               <label className="text-xs text-muted-foreground">
                 {t('gallery.dateFrom' as TranslationKey)}
               </label>
-              <input
+              <Input
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                className="h-7 w-auto px-2 text-xs"
               />
               <label className="text-xs text-muted-foreground">
                 {t('gallery.dateTo' as TranslationKey)}
               </label>
-              <input
+              <Input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                className="h-7 w-auto px-2 text-xs"
               />
               {(dateFrom || dateTo) && (
                 <Button
@@ -229,11 +223,11 @@ export default function GalleryPage() {
       <div className="flex-1 overflow-y-auto p-4">
         {loading && items.length === 0 ? (
           <div className="flex h-full items-center justify-center">
-            <HugeiconsIcon icon={Loading02Icon} className="h-5 w-5 animate-spin text-muted-foreground" />
+            <SpinnerGap size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : items.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
-            <HugeiconsIcon icon={PaintBrush01Icon} className="h-10 w-10 opacity-30" />
+            <PaintBrush size={40} className="opacity-30" />
             <p className="text-sm">{t('gallery.empty' as TranslationKey)}</p>
             <p className="text-xs opacity-70">{t('gallery.emptyHint' as TranslationKey)}</p>
           </div>
@@ -246,7 +240,7 @@ export default function GalleryPage() {
             {/* Sentinel for infinite scroll */}
             <div ref={sentinelRef} className="flex justify-center py-4">
               {loading && (
-                <HugeiconsIcon icon={Loading02Icon} className="h-4 w-4 animate-spin text-muted-foreground" />
+                <SpinnerGap size={16} className="animate-spin text-muted-foreground" />
               )}
             </div>
           </div>

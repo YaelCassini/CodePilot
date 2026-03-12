@@ -15,8 +15,10 @@ import './adapters';
 import * as router from './channel-router';
 import * as engine from './conversation-engine';
 import * as broker from './permission-broker';
-import { deliver, deliverRendered } from './delivery-layer';
+import { deliver, deliverRendered, chunkText } from './delivery-layer';
+import { PLATFORM_LIMITS as limits } from './types';
 import { markdownToTelegramChunks } from './markdown/telegram';
+import { markdownToDiscordChunks } from './markdown/discord';
 import { getSetting, insertAuditLog, updateChannelBinding } from '../db';
 import { setBridgeModeActive } from '../telegram-bot';
 import { escapeHtml } from './adapters/telegram-utils';
@@ -43,10 +45,18 @@ interface StreamConfig {
   maxChars: number;
 }
 
-function getStreamConfig(): StreamConfig {
-  const intervalMs = parseInt(getSetting('bridge_telegram_stream_interval_ms') || '', 10) || 700;
-  const minDeltaChars = parseInt(getSetting('bridge_telegram_stream_min_delta_chars') || '', 10) || 20;
-  const maxChars = parseInt(getSetting('bridge_telegram_stream_max_chars') || '', 10) || 3900;
+/** Default stream config per channel type. */
+const STREAM_DEFAULTS: Record<string, StreamConfig> = {
+  telegram: { intervalMs: 700, minDeltaChars: 20, maxChars: 3900 },
+  discord: { intervalMs: 1500, minDeltaChars: 40, maxChars: 1900 },
+};
+
+function getStreamConfig(channelType = 'telegram'): StreamConfig {
+  const defaults = STREAM_DEFAULTS[channelType] || STREAM_DEFAULTS.telegram;
+  const prefix = `bridge_${channelType}_stream_`;
+  const intervalMs = parseInt(getSetting(`${prefix}interval_ms`) || '', 10) || defaults.intervalMs;
+  const minDeltaChars = parseInt(getSetting(`${prefix}min_delta_chars`) || '', 10) || defaults.minDeltaChars;
+  const maxChars = parseInt(getSetting(`${prefix}max_chars`) || '', 10) || defaults.maxChars;
   return { intervalMs, minDeltaChars, maxChars };
 }
 
@@ -87,11 +97,26 @@ async function deliverResponse(
   address: ChannelAddress,
   responseText: string,
   sessionId: string,
+  replyToMessageId?: string,
 ): Promise<SendResult> {
   if (adapter.channelType === 'telegram') {
     const chunks = markdownToTelegramChunks(responseText, 4096);
     if (chunks.length > 0) {
-      return deliverRendered(adapter, address, chunks, { sessionId });
+      return deliverRendered(adapter, address, chunks, { sessionId, replyToMessageId });
+    }
+    return { ok: true };
+  }
+  if (adapter.channelType === 'discord') {
+    // Discord: native markdown, chunk at 2000 chars with fence repair
+    const chunks = markdownToDiscordChunks(responseText, 2000);
+    for (let i = 0; i < chunks.length; i++) {
+      const result = await deliver(adapter, {
+        address,
+        text: chunks[i].text,
+        parseMode: 'Markdown',
+        replyToMessageId,
+      }, { sessionId });
+      if (!result.ok) return result;
     }
     return { ok: true };
   }
@@ -101,13 +126,39 @@ async function deliverResponse(
       address,
       text: responseText,
       parseMode: 'Markdown',
+      replyToMessageId,
     }, { sessionId });
   }
-  // Generic fallback: deliver as plain text (deliver() handles chunking internally)
+  if (adapter.channelType === 'qq') {
+    // QQ passive replies have a limited budget per msg_id (typically 5).
+    // Limit chunks to avoid exhausting the budget and failing mid-response.
+    const QQ_MAX_CHUNKS = 3;
+    const limit = limits.qq || 2000;
+    const fullText = responseText;
+    const chunks = chunkText(fullText, limit);
+
+    const effectiveChunks = chunks.length > QQ_MAX_CHUNKS
+      ? [...chunks.slice(0, QQ_MAX_CHUNKS - 1), chunks.slice(QQ_MAX_CHUNKS - 1).join('\n').slice(0, limit - 30) + '\n\n[... response truncated]']
+      : chunks;
+
+    for (let i = 0; i < effectiveChunks.length; i++) {
+      const result = await deliver(adapter, {
+        address,
+        text: effectiveChunks[i],
+        parseMode: 'plain',
+        replyToMessageId,
+      }, { sessionId });
+      if (!result.ok) return result;
+    }
+    return { ok: true };
+  }
+
+  // Generic fallback: deliver as plain text
   return deliver(adapter, {
     address,
     text: responseText,
     parseMode: 'plain',
+    replyToMessageId,
   }, { sessionId });
 }
 
@@ -402,6 +453,7 @@ async function handleMessage(
         address: msg.address,
         text: 'Permission response recorded.',
         parseMode: 'plain',
+        replyToMessageId: msg.messageId,
       };
       await deliver(adapter, confirmMsg);
     }
@@ -415,7 +467,7 @@ async function handleMessage(
 
   // Check for IM commands (before sanitization — commands are validated individually)
   if (rawText.startsWith('/')) {
-    await handleCommand(adapter, msg, rawText);
+    await handleCommand(adapter, msg, rawText, msg.messageId);
     ack();
     return;
   }
@@ -461,7 +513,7 @@ async function handleMessage(
     };
   }
 
-  const streamCfg = previewState ? getStreamConfig() : null;
+  const streamCfg = previewState ? getStreamConfig(adapter.channelType) : null;
 
   // Build the onPartialText callback (or undefined if preview not supported)
   const onPartialText = (previewState && streamCfg) ? (fullText: string) => {
@@ -522,30 +574,33 @@ async function handleMessage(
         perm.toolInput,
         binding.codepilotSessionId,
         perm.suggestions,
+        msg.messageId,
       );
     }, taskAbort.signal, hasAttachments ? msg.attachments : undefined, onPartialText);
 
     // Send response text — render via channel-appropriate format
     if (result.responseText) {
-      await deliverResponse(adapter, msg.address, result.responseText, binding.codepilotSessionId);
+      await deliverResponse(adapter, msg.address, result.responseText, binding.codepilotSessionId, msg.messageId);
     } else if (result.hasError) {
       const errorResponse: OutboundMessage = {
         address: msg.address,
         text: `<b>Error:</b> ${escapeHtml(result.errorMessage)}`,
         parseMode: 'HTML',
+        replyToMessageId: msg.messageId,
       };
       await deliver(adapter, errorResponse);
     }
 
     // Persist the actual SDK session ID for future resume.
-    // If the result has an error and no session ID was captured, clear the
-    // stale ID so the next message starts fresh instead of retrying a broken resume.
+    // On error, ALWAYS clear — the SDK may emit a session_id before crashing,
+    // and saving that broken ID would cause all subsequent messages to fail
+    // by repeatedly trying to resume a corrupted session.
     if (binding.id) {
       try {
-        if (result.sdkSessionId) {
-          updateChannelBinding(binding.id, { sdkSessionId: result.sdkSessionId });
-        } else if (result.hasError && binding.sdkSessionId) {
+        if (result.hasError) {
           updateChannelBinding(binding.id, { sdkSessionId: '' });
+        } else if (result.sdkSessionId) {
+          updateChannelBinding(binding.id, { sdkSessionId: result.sdkSessionId });
         }
       } catch { /* best effort */ }
     }
@@ -574,6 +629,7 @@ async function handleCommand(
   adapter: BaseChannelAdapter,
   msg: InboundMessage,
   text: string,
+  replyToMessageId?: string,
 ): Promise<void> {
   // Extract command and args (handle /command@botname format)
   const parts = text.split(/\s+/);
@@ -595,6 +651,7 @@ async function handleCommand(
       address: msg.address,
       text: `Command rejected: invalid input detected.`,
       parseMode: 'plain',
+      replyToMessageId,
     });
     return;
   }
@@ -665,8 +722,8 @@ async function handleCommand(
         break;
       }
       const binding = router.resolve(msg.address);
-      router.updateBinding(binding.id, { workingDirectory: validatedPath });
-      response = `Working directory set to <code>${escapeHtml(validatedPath)}</code>`;
+      router.updateBinding(binding.id, { workingDirectory: validatedPath, sdkSessionId: '' });
+      response = `Working directory set to <code>${escapeHtml(validatedPath)}</code>\n(SDK session reset — next message starts fresh context)`;
       break;
     }
 
@@ -768,6 +825,7 @@ async function handleCommand(
       address: msg.address,
       text: response,
       parseMode: 'HTML',
+      replyToMessageId,
     });
   }
 }

@@ -1,10 +1,14 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Message, SSEEvent, SessionResponse, TokenUsage, PermissionRequestEvent } from '@/types';
 import { MessageList } from '@/components/chat/MessageList';
 import { MessageInput } from '@/components/chat/MessageInput';
+import { ChatComposerActionBar } from '@/components/chat/ChatComposerActionBar';
+import { ChatPermissionSelector } from '@/components/chat/ChatPermissionSelector';
+import { ImageGenToggle } from '@/components/chat/ImageGenToggle';
+import { PermissionPrompt } from '@/components/chat/PermissionPrompt';
 import { usePanel } from '@/hooks/usePanel';
 
 interface ToolUseInfo {
@@ -20,36 +24,54 @@ interface ToolResultInfo {
 
 export default function NewChatPage() {
   const router = useRouter();
-  const { setWorkingDirectory, setPanelOpen, setPendingApprovalSessionId } = usePanel();
+  const { setPendingApprovalSessionId } = usePanel();
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolUses, setToolUses] = useState<ToolUseInfo[]>([]);
   const [toolResults, setToolResults] = useState<ToolResultInfo[]>([]);
   const [statusText, setStatusText] = useState<string | undefined>();
-  const [workingDir, setWorkingDir] = useState('');
-  const [mode, setMode] = useState('code');
+  const [workingDir] = useState('');
+  const [mode] = useState('code');
   const [currentModel, setCurrentModel] = useState('sonnet');
   const [currentProviderId, setCurrentProviderId] = useState('');
   const [pendingPermission, setPendingPermission] = useState<PermissionRequestEvent | null>(null);
   const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | null>(null);
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
+  const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>('default');
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Effort level — lifted here so the first message includes it
+  const [selectedEffort, setSelectedEffort] = useState<string | undefined>(undefined);
+  // Thinking mode from app settings
+  const [thinkingMode, setThinkingMode] = useState<string>('adaptive');
+
+  // Fetch thinking mode from app settings
+  useEffect(() => {
+    fetch('/api/settings/app')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.settings?.thinking_mode) {
+          setThinkingMode(data.settings.thinking_mode);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const stopStreaming = useCallback(() => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
   }, []);
 
-  const handlePermissionResponse = useCallback(async (decision: 'allow' | 'allow_session' | 'deny') => {
+  const handlePermissionResponse = useCallback(async (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string) => {
     if (!pendingPermission) return;
 
-    const body: { permissionRequestId: string; decision: { behavior: 'allow'; updatedPermissions?: unknown[] } | { behavior: 'deny'; message?: string } } = {
+    const body: { permissionRequestId: string; decision: { behavior: 'allow'; updatedInput?: Record<string, unknown>; updatedPermissions?: unknown[] } | { behavior: 'deny'; message?: string } } = {
       permissionRequestId: pendingPermission.permissionRequestId,
       decision: decision === 'deny'
-        ? { behavior: 'deny', message: 'User denied permission' }
+        ? { behavior: 'deny', message: denyMessage || 'User denied permission' }
         : {
             behavior: 'allow',
+            ...(updatedInput ? { updatedInput } : {}),
             ...(decision === 'allow_session' && pendingPermission.suggestions
               ? { updatedPermissions: pendingPermission.suggestions }
               : {}),
@@ -76,7 +98,7 @@ export default function NewChatPage() {
   }, [pendingPermission, setPendingApprovalSessionId]);
 
   const sendFirstMessage = useCallback(
-    async (content: string, _files?: unknown, systemPromptAppend?: string) => {
+    async (content: string, _files?: unknown, systemPromptAppend?: string, displayOverride?: string) => {
       if (isStreaming) return;
 
       // Require a project directory before sending
@@ -105,11 +127,14 @@ export default function NewChatPage() {
       let sessionId = '';
 
       try {
-        // Create a new session with working directory
+        // Create a new session with working directory + model/provider
         const createBody: Record<string, string> = {
           title: content.slice(0, 50),
           mode,
           working_directory: workingDir.trim(),
+          permission_profile: permissionProfile,
+          model: currentModel,
+          provider_id: currentProviderId,
         };
 
         const createRes = await fetch('/api/chat/sessions', {
@@ -129,22 +154,37 @@ export default function NewChatPage() {
         // Notify ChatListPanel to refresh immediately
         window.dispatchEvent(new CustomEvent('session-created'));
 
-        // Add user message to UI
+        // Add user message to UI — use displayOverride for chat bubble if provided
         const userMessage: Message = {
           id: 'temp-' + Date.now(),
           session_id: session.id,
           role: 'user',
-          content,
+          content: displayOverride || content,
           created_at: new Date().toISOString(),
           token_usage: null,
         };
         setMessages([userMessage]);
 
+        // Build thinking config from settings
+        const thinkingConfig = thinkingMode && thinkingMode !== 'adaptive'
+          ? { type: thinkingMode }
+          : thinkingMode === 'adaptive' ? { type: 'adaptive' } : undefined;
+
         // Send the message via streaming API
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: session.id, content, mode, model: currentModel, provider_id: currentProviderId, ...(systemPromptAppend ? { systemPromptAppend } : {}) }),
+          body: JSON.stringify({
+            session_id: session.id,
+            content,
+            mode,
+            model: currentModel,
+            provider_id: currentProviderId,
+            ...(systemPromptAppend ? { systemPromptAppend } : {}),
+            ...(selectedEffort ? { effort: selectedEffort } : {}),
+            ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
+            ...(displayOverride ? { displayOverride } : {}),
+          }),
           signal: controller.signal,
         });
 
@@ -311,7 +351,7 @@ export default function NewChatPage() {
         abortControllerRef.current = null;
       }
     },
-    [isStreaming, router, workingDir, mode, currentModel, currentProviderId, setPendingApprovalSessionId]
+    [isStreaming, router, workingDir, mode, currentModel, currentProviderId, permissionProfile, selectedEffort, thinkingMode, setPendingApprovalSessionId]
   );
 
   const handleCommand = useCallback((command: string) => {
@@ -358,9 +398,12 @@ export default function NewChatPage() {
         toolResults={toolResults}
         streamingToolOutput={streamingToolOutput}
         statusText={statusText}
+      />
+      <PermissionPrompt
         pendingPermission={pendingPermission}
-        onPermissionResponse={handlePermissionResponse}
         permissionResolved={permissionResolved}
+        onPermissionResponse={handlePermissionResponse}
+        toolUses={toolUses}
       />
       <MessageInput
         onSend={sendFirstMessage}
@@ -376,8 +419,17 @@ export default function NewChatPage() {
           setCurrentModel(model);
         }}
         workingDirectory={workingDir}
-        mode={mode}
-        onModeChange={setMode}
+        effort={selectedEffort}
+        onEffortChange={setSelectedEffort}
+      />
+      <ChatComposerActionBar
+        left={<ImageGenToggle />}
+        center={
+          <ChatPermissionSelector
+            permissionProfile={permissionProfile}
+            onPermissionChange={setPermissionProfile}
+          />
+        }
       />
     </div>
   );
