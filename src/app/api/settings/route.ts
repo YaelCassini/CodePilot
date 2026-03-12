@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { CLAUDE_GLOBAL_DIR } from "@/lib/platform";
 
-const SETTINGS_PATH = path.join(os.homedir(), ".claude", "settings.json");
+const SETTINGS_PATH = path.join(os.homedir(), CLAUDE_GLOBAL_DIR, "settings.json");
 
 function readSettingsFile(): Record<string, unknown> {
   try {

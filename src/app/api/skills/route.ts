@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import crypto from "crypto";
+import { CLAUDE_GLOBAL_DIR, CLAUDE_PROJECT_DIR } from "@/lib/platform";
 
 interface SkillFile {
   name: string;
@@ -17,20 +18,20 @@ type InstalledSource = "agents" | "claude";
 type InstalledSkill = SkillFile & { installedSource: InstalledSource; contentHash: string };
 
 function getGlobalCommandsDir(): string {
-  return path.join(os.homedir(), ".claude", "commands");
+  return path.join(os.homedir(), CLAUDE_GLOBAL_DIR, "commands");
 }
 
 function getProjectCommandsDir(cwd?: string): string {
-  return path.join(cwd || process.cwd(), ".claude", "commands");
+  return path.join(cwd || process.cwd(), CLAUDE_PROJECT_DIR, "commands");
 }
 
 function getProjectSkillsDir(cwd?: string): string {
-  return path.join(cwd || process.cwd(), ".claude", "skills");
+  return path.join(cwd || process.cwd(), CLAUDE_PROJECT_DIR, "skills");
 }
 
 function getPluginCommandsDirs(): string[] {
   const dirs: string[] = [];
-  const marketplacesDir = path.join(os.homedir(), ".claude", "plugins", "marketplaces");
+  const marketplacesDir = path.join(os.homedir(), CLAUDE_GLOBAL_DIR, "plugins", "marketplaces");
   if (!fs.existsSync(marketplacesDir)) return dirs;
 
   try {
@@ -58,7 +59,7 @@ function getInstalledSkillsDir(): string {
 }
 
 function getClaudeSkillsDir(): string {
-  return path.join(os.homedir(), ".claude", "skills");
+  return path.join(os.homedir(), CLAUDE_GLOBAL_DIR, "skills");
 }
 
 /**

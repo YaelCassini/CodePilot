@@ -66,6 +66,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const statusText = streamSnapshot?.statusText;
   const pendingPermission = streamSnapshot?.pendingPermission ?? null;
   const permissionResolved = streamSnapshot?.permissionResolved ?? null;
+  const permissionQueueSize = streamSnapshot?.permissionQueueSize ?? 0;
   const activeAgents = streamSnapshot?.activeAgents ?? [];
 
   // Pending image generation notices — flushed into the next user message so the LLM knows about generated images
@@ -228,7 +229,6 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   // Send message — delegates stream management to the manager
   const sendMessage = useCallback(
     async (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string) => {
-      if (isStreaming) return;
 
       // Use displayOverride for UI if provided (e.g. image-gen skill injection hides the skill prompt)
       const displayUserContent = displayOverride || content;
@@ -278,7 +278,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         },
       });
     },
-    [sessionId, isStreaming, mode, currentModel, currentProviderId, handleModeChange]
+    [sessionId, mode, currentModel, currentProviderId, handleModeChange]
   );
 
   // Keep sendMessageRef in sync so timeout auto-retry can call it
@@ -291,7 +291,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           id: 'cmd-' + Date.now(),
           session_id: sessionId,
           role: 'assistant',
-          content: `## Available Commands\n\n### Instant Commands\n- **/help** — Show this help message\n- **/clear** — Clear conversation history\n- **/cost** — Show token usage statistics\n\n### Prompt Commands (shown as badge, add context then send)\n- **/compact** — Compress conversation context\n- **/doctor** — Diagnose project health\n- **/init** — Initialize CLAUDE.md for project\n- **/review** — Review code quality\n- **/terminal-setup** — Configure terminal settings\n- **/memory** — Edit project memory file\n\n### Custom Skills\nSkills from \`~/.claude/commands/\` and project \`.claude/commands/\` are also available via \`/\`.\n\n**Tips:**\n- Type \`/\` to browse commands and skills\n- Type \`@\` to mention files\n- Use Shift+Enter for new line\n- Select a project folder to enable file operations`,
+          content: `## Available Commands\n\n### Instant Commands\n- **/help** — Show this help message\n- **/clear** — Clear conversation history\n- **/cost** — Show token usage statistics\n\n### Prompt Commands (shown as badge, add context then send)\n- **/compact** — Compress conversation context\n- **/doctor** — Diagnose project health\n- **/init** — Initialize CLAUDE.md for project\n- **/review** — Review code quality\n- **/terminal-setup** — Configure terminal settings\n- **/memory** — Edit project memory file\n\n### Custom Skills\nSkills from \`~/.claude-internal/commands/\` and project \`.claude/commands/\` are also available via \`/\`.\n\n**Tips:**\n- Type \`/\` to browse commands and skills\n- Type \`@\` to mention files\n- Use Shift+Enter for new line\n- Select a project folder to enable file operations`,
           created_at: new Date().toISOString(),
           token_usage: null,
         };
@@ -405,6 +405,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         pendingPermission={pendingPermission}
         onPermissionResponse={handlePermissionResponse}
         permissionResolved={permissionResolved}
+        permissionQueueSize={permissionQueueSize}
         onForceStop={stopStreaming}
         hasMore={hasMore}
         loadingMore={loadingMore}

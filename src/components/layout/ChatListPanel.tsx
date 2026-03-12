@@ -56,6 +56,22 @@ function formatRelativeTime(dateStr: string, t: (key: import('@/i18n').Translati
 
 const COLLAPSED_PROJECTS_KEY = "codepilot:collapsed-projects";
 const COLLAPSED_INITIALIZED_KEY = "codepilot:collapsed-initialized";
+const PROJECT_ALIASES_KEY = "codepilot:project-aliases";
+
+function loadProjectAliases(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(PROJECT_ALIASES_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+function saveProjectAliases(aliases: Record<string, string>) {
+  localStorage.setItem(PROJECT_ALIASES_KEY, JSON.stringify(aliases));
+}
 
 function loadCollapsedProjects(): Set<string> {
   if (typeof window === 'undefined') return new Set();
@@ -79,7 +95,10 @@ interface ProjectGroup {
   latestUpdatedAt: number;
 }
 
-function groupSessionsByProject(sessions: ChatSession[]): ProjectGroup[] {
+function groupSessionsByProject(
+  sessions: ChatSession[],
+  aliases: Record<string, string>,
+): ProjectGroup[] {
   const map = new Map<string, ChatSession[]>();
   for (const session of sessions) {
     const key = session.working_directory || "";
@@ -89,15 +108,15 @@ function groupSessionsByProject(sessions: ChatSession[]): ProjectGroup[] {
 
   const groups: ProjectGroup[] = [];
   for (const [wd, groupSessions] of map) {
-    // Sort sessions within group by updated_at DESC
     groupSessions.sort(
       (a, b) =>
         parseDBDate(b.updated_at).getTime() - parseDBDate(a.updated_at).getTime()
     );
     const displayName =
-      wd === ""
+      aliases[wd] ||
+      (wd === ""
         ? "No Project"
-        : groupSessions[0]?.project_name || wd.split("/").pop() || wd;
+        : groupSessions[0]?.project_name || wd.split("/").pop() || wd);
     const latestUpdatedAt = parseDBDate(groupSessions[0].updated_at).getTime();
     groups.push({
       workingDirectory: wd,
@@ -107,7 +126,6 @@ function groupSessionsByProject(sessions: ChatSession[]): ProjectGroup[] {
     });
   }
 
-  // Sort groups by most recently active first
   groups.sort((a, b) => b.latestUpdatedAt - a.latestUpdatedAt);
   return groups;
 }
@@ -130,6 +148,12 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   );
   const [hoveredFolder, setHoveredFolder] = useState<string | null>(null);
   const [creatingChat, setCreatingChat] = useState(false);
+  const [projectAliases, setProjectAliases] = useState<Record<string, string>>(
+    () => loadProjectAliases()
+  );
+  const [renamingProject, setRenamingProject] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   /** Read current model + provider_id from localStorage for new session creation */
   const getCurrentModelAndProvider = useCallback(() => {
@@ -218,6 +242,32 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       saveCollapsedProjects(next);
       return next;
     });
+  }, []);
+
+  const startRenaming = useCallback((wd: string, currentName: string) => {
+    setRenamingProject(wd);
+    setRenameValue(currentName);
+    setTimeout(() => renameInputRef.current?.select(), 0);
+  }, []);
+
+  const commitRename = useCallback(() => {
+    if (renamingProject === null) return;
+    const trimmed = renameValue.trim();
+    setProjectAliases((prev) => {
+      const next = { ...prev };
+      if (trimmed) {
+        next[renamingProject] = trimmed;
+      } else {
+        delete next[renamingProject];
+      }
+      saveProjectAliases(next);
+      return next;
+    });
+    setRenamingProject(null);
+  }, [renamingProject, renameValue]);
+
+  const cancelRename = useCallback(() => {
+    setRenamingProject(null);
   }, []);
 
   // AbortController ref for cancelling in-flight requests
@@ -352,8 +402,8 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   }, [sessions, searchQuery, isSplitActive, splitSessionIds]);
 
   const projectGroups = useMemo(
-    () => groupSessionsByProject(filteredSessions),
-    [filteredSessions]
+    () => groupSessionsByProject(filteredSessions, projectAliases),
+    [filteredSessions, projectAliases]
   );
 
   // On first use, auto-collapse all project groups except the most recent one
@@ -532,19 +582,21 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                           "flex items-center gap-1 rounded-md px-2 py-1 cursor-pointer select-none transition-colors",
                           "hover:bg-accent/50"
                         )}
-                        onClick={() => toggleProject(group.workingDirectory)}
+                        onClick={() => {
+                          if (renamingProject !== group.workingDirectory) {
+                            toggleProject(group.workingDirectory);
+                          }
+                        }}
                         onDoubleClick={(e) => {
                           e.stopPropagation();
                           if (group.workingDirectory) {
-                            if (window.electronAPI?.shell?.openPath) {
-                              window.electronAPI.shell.openPath(group.workingDirectory);
-                            } else {
-                              fetch('/api/files/open', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ path: group.workingDirectory }),
-                              }).catch(() => {});
-                            }
+                            startRenaming(group.workingDirectory, group.displayName);
+                          }
+                        }}
+                        onContextMenu={(e) => {
+                          if (group.workingDirectory) {
+                            e.preventDefault();
+                            startRenaming(group.workingDirectory, group.displayName);
                           }
                         }}
                         onMouseEnter={() =>
@@ -560,9 +612,25 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                       icon={isCollapsed ? Folder01Icon : FolderOpenIcon}
                       className="h-4 w-4 shrink-0 text-muted-foreground"
                     />
-                    <span className="flex-1 truncate text-[13px] font-medium text-sidebar-foreground">
-                      {group.displayName}
-                    </span>
+                    {renamingProject === group.workingDirectory ? (
+                      <input
+                        ref={renameInputRef}
+                        className="flex-1 min-w-0 bg-transparent text-[13px] font-medium text-sidebar-foreground outline-none border-b border-primary/50 py-0"
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitRename();
+                          if (e.key === "Escape") cancelRename();
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        autoFocus
+                      />
+                    ) : (
+                      <span className="flex-1 truncate text-[13px] font-medium text-sidebar-foreground">
+                        {group.displayName}
+                      </span>
+                    )}
                     {/* New chat in project button (on hover) */}
                     {group.workingDirectory !== "" && (
                       <Tooltip>
@@ -600,7 +668,11 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                     </TooltipTrigger>
                     <TooltipContent side="right" className="max-w-xs">
                       <p className="text-xs break-all">{group.workingDirectory || 'No Project'}</p>
-                      {group.workingDirectory && <p className="text-[10px] text-muted-foreground mt-0.5">Double-click to open in Finder</p>}
+                      {group.workingDirectory && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          Double-click to rename · Right-click to rename
+                        </p>
+                      )}
                     </TooltipContent>
                   </Tooltip>
 

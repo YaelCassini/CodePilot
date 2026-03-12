@@ -200,15 +200,18 @@ function FileAwareSubmitButton({
   const attachments = usePromptInputAttachments();
   const hasFiles = attachments.files.length > 0;
   const isStreaming = status === 'streaming' || status === 'submitted';
+  const hasContent = inputValue.trim() || hasBadge || hasFiles;
+
+  const effectiveStatus = isStreaming && hasContent ? 'ready' as ChatStatus : status;
 
   return (
     <PromptInputSubmit
-      status={status}
+      status={effectiveStatus}
       onStop={onStop}
-      disabled={disabled || (!isStreaming && !inputValue.trim() && !hasBadge && !hasFiles)}
+      disabled={disabled || !hasContent}
       className="rounded-full"
     >
-      {isStreaming ? (
+      {isStreaming && !hasContent ? (
         <HugeiconsIcon icon={StopIcon} className="size-4" />
       ) : (
         <HugeiconsIcon icon={ArrowUp02Icon} className="h-4 w-4" strokeWidth={2} />
@@ -628,7 +631,7 @@ export function MessageInput({
     };
 
     // If Image Agent toggle is on and no badge, send via normal LLM with systemPromptAppend
-    if (imageGen.state.enabled && !badge && !isStreaming) {
+    if (imageGen.state.enabled && !badge) {
       const files = await convertFiles();
       if (!content && files.length === 0) return;
 
@@ -648,7 +651,7 @@ export function MessageInput({
     }
 
     // If badge is active, expand the command/skill and send
-    if (badge && !isStreaming) {
+    if (badge) {
       let expandedPrompt = '';
 
       if (badge.isSkill) {
@@ -687,7 +690,7 @@ export function MessageInput({
     const files = await convertFiles();
     const hasFiles = files.length > 0;
 
-    if ((!content && !hasFiles) || disabled || isStreaming) return;
+    if ((!content && !hasFiles) || disabled) return;
 
     // Check if it's a direct slash command typed in the input
     if (content.startsWith('/') && !hasFiles) {

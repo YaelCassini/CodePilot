@@ -45,15 +45,14 @@ interface JournalEntry {
 // ──────────────────────────────────────────────
 
 /**
- * Encode a filesystem path to the format claude-internal uses for project dirs:
- * drive letters and separators are replaced with '--'
- * e.g. "D:\VibeCoding\CodePilot" → "D--VibeCoding-CodePilot"
+ * Encode a filesystem path to the format claude-internal uses for project dirs.
+ * Colons and slashes are each replaced with a single '-'.
+ * e.g. "D:\VibeCoding\CodePilot" → "D:/VibeCoding/CodePilot" → "D--VibeCoding-CodePilot"
+ *      (the ":" becomes "-" and each "/" becomes "-", so "D:/" produces "D--")
  */
 function encodeProjectPath(projectPath: string): string {
-  // Normalise to forward slashes, strip leading slash
   const normalised = projectPath.replace(/\\/g, '/').replace(/^\//, '');
-  // Replace : and / with --
-  return normalised.replace(/:/g, '').replace(/\//g, '-');
+  return normalised.replace(/:/g, '-').replace(/\//g, '-');
 }
 
 /**
@@ -156,10 +155,31 @@ function extractSubagentMessages(entries: JournalEntry[]): JournalMessage[] {
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
+  const offset = parseInt(searchParams.get('offset') ?? '0', 10);
+
+  // ── Direct path mode: ?path=<absolute-path>&offset=N ──
+  const directPath = searchParams.get('path');
+  if (directPath) {
+    const resolved = path.resolve(directPath);
+    if (!isAllowedPath(resolved)) {
+      return NextResponse.json({ error: 'Path outside allowed directory' }, { status: 403 });
+    }
+    try {
+      const raw = fs.readFileSync(resolved, 'utf-8');
+      const entries = parseJSONL(raw);
+      const messages = extractSubagentMessages(entries);
+      const slice = messages.length > MAX_MESSAGES ? messages.slice(-MAX_MESSAGES) : messages;
+      const newMessages = offset > 0 ? slice.slice(offset) : slice;
+      return NextResponse.json({ messages: newMessages, total: slice.length, source: 'direct' });
+    } catch {
+      return NextResponse.json({ error: 'Cannot read transcript file' }, { status: 404 });
+    }
+  }
+
+  // ── Standard mode: ?session_id=...&project_path=...&agent_id=... ──
   const sessionId   = searchParams.get('session_id');
   const projectPath = searchParams.get('project_path');
   const agentId     = searchParams.get('agent_id');
-  const offset      = parseInt(searchParams.get('offset') ?? '0', 10);
 
   if (!sessionId || !projectPath || !agentId) {
     return NextResponse.json(

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { CLAUDE_GLOBAL_DIR } from '@/lib/platform';
 import type { ErrorResponse } from '@/types';
 
 export interface SkillInfo {
@@ -18,7 +19,7 @@ export interface SkillsResponse {
 }
 
 function getClaudeDir(): string {
-  return path.join(os.homedir(), '.claude');
+  return path.join(os.homedir(), CLAUDE_GLOBAL_DIR);
 }
 
 function discoverSkills(): SkillInfo[] {

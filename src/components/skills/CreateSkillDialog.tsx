@@ -158,7 +158,7 @@ export function CreateSkillDialog({
             <p className="text-xs text-muted-foreground">
               {scope === "project"
                 ? "Saved in .claude/commands/ (this project only)"
-                : "Saved in ~/.claude/commands/ (available everywhere)"}
+                : "Saved in ~/.claude-internal/commands/ (available everywhere)"}
             </p>
           </div>
 

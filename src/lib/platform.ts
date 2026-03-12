@@ -8,6 +8,17 @@ const execFileAsync = promisify(execFile);
 
 export const CLAUDE_BINARY_NAME = 'claude-internal';
 
+/**
+ * Global config directory name. `claude-internal` uses `.claude-internal`
+ * while the standard CLI uses `.claude`. Project-level dirs always use `.claude`.
+ */
+export const CLAUDE_GLOBAL_DIR = '.claude-internal';
+export const CLAUDE_PROJECT_DIR = '.claude';
+
+export function getClaudeGlobalConfigDir(): string {
+  return path.join(os.homedir(), CLAUDE_GLOBAL_DIR);
+}
+
 export const isWindows = process.platform === 'win32';
 export const isMac = process.platform === 'darwin';
 
@@ -31,7 +42,7 @@ export function getExtraPathDirs(): string[] {
       path.join(appData, 'npm'),
       path.join(localAppData, 'npm'),
       path.join(home, '.npm-global', 'bin'),
-      path.join(home, '.claude', 'bin'),
+      path.join(home, CLAUDE_GLOBAL_DIR, 'bin'),
       path.join(home, '.local', 'bin'),
       path.join(home, '.nvm', 'current', 'bin'),
     ];
@@ -44,7 +55,7 @@ export function getExtraPathDirs(): string[] {
     path.join(home, '.npm-global', 'bin'),
     path.join(home, '.nvm', 'current', 'bin'),
     path.join(home, '.local', 'bin'),
-    path.join(home, '.claude', 'bin'),
+    path.join(home, CLAUDE_GLOBAL_DIR, 'bin'),
   ];
 }
 
@@ -61,7 +72,7 @@ export function getClaudeCandidatePaths(): string[] {
       path.join(appData, 'npm'),
       path.join(localAppData, 'npm'),
       path.join(home, '.npm-global', 'bin'),
-      path.join(home, '.claude', 'bin'),
+      path.join(home, CLAUDE_GLOBAL_DIR, 'bin'),
       path.join(home, '.local', 'bin'),
     ];
     const candidates: string[] = [];
@@ -77,7 +88,7 @@ export function getClaudeCandidatePaths(): string[] {
     `/opt/homebrew/bin/${CLAUDE_BINARY_NAME}`,
     path.join(home, '.npm-global', 'bin', CLAUDE_BINARY_NAME),
     path.join(home, '.local', 'bin', CLAUDE_BINARY_NAME),
-    path.join(home, '.claude', 'bin', CLAUDE_BINARY_NAME),
+    path.join(home, CLAUDE_GLOBAL_DIR, 'bin', CLAUDE_BINARY_NAME),
   ];
 }
 

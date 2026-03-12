@@ -300,7 +300,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         // Then overlay any API config the user set in CodePilot settings (optional).
         const sdkEnv: Record<string, string> = { ...process.env as Record<string, string> };
 
-        // Ensure HOME/USERPROFILE are set so Claude Code can find ~/.claude/commands/
+        // Ensure HOME/USERPROFILE are set so Claude Code can find ~/.claude-internal/commands/
         if (!sdkEnv.HOME) sdkEnv.HOME = os.homedir();
         if (!sdkEnv.USERPROFILE) sdkEnv.USERPROFILE = os.homedir();
         // Ensure SDK subprocess has expanded PATH (consistent with Electron mode)
@@ -383,7 +383,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           env: sanitizeEnv(sdkEnv),
           // Load settings so the SDK behaves like the CLI (tool permissions,
           // CLAUDE.md, etc.). When an active provider is configured in
-          // CodePilot, skip 'user' settings because ~/.claude/settings.json
+          // CodePilot, skip 'user' settings because ~/.claude-internal/settings.json
           // may contain env overrides (ANTHROPIC_BASE_URL, ANTHROPIC_MODEL,
           // etc.) that would conflict with the provider's configuration.
           settingSources: activeProvider?.api_key
@@ -436,7 +436,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         }
 
         // MCP servers: only pass explicitly provided config (e.g. from CodePilot UI).
-        // User-level MCP config from ~/.claude.json and ~/.claude/settings.json
+        // User-level MCP config from ~/.claude-internal/.claude.json and ~/.claude-internal/settings.json
         // is now automatically loaded by the SDK via settingSources: ['user', 'project', 'local'].
         if (mcpServers && Object.keys(mcpServers).length > 0) {
           queryOptions.mcpServers = toSdkMcpConfig(mcpServers);
@@ -592,11 +592,13 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           SubagentStart: [{
             hooks: [async (input) => {
               const agentEvent = input as SubagentStartHookInput;
+              const hookData = input as Record<string, unknown>;
               controller.enqueue(formatSSE({
                 type: 'agent_start',
                 data: JSON.stringify({
                   agentId: agentEvent.agent_id,
                   agentType: agentEvent.agent_type,
+                  description: hookData.description || hookData.agent_description || '',
                   mainSessionId: agentEvent.session_id,
                   projectPath: agentEvent.cwd,
                 }),

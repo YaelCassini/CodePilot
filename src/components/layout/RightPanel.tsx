@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useContext } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { StructureFolderIcon, PanelRightCloseIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { TaskList } from "@/components/project/TaskList";
 import { PermissionsPanel } from "@/components/project/PermissionsPanel";
 import { AgentTeamPanel } from "@/components/project/AgentTeamPanel";
 import { VerticalResizeHandle } from "@/components/layout/VerticalResizeHandle";
+import { AgentDashboardContext } from "@/hooks/useAgentDashboard";
 
 // Minimum and maximum heights for each section (px)
 const MIN_H = 60;
@@ -35,6 +36,11 @@ interface RightPanelProps {
 export function RightPanel({ width }: RightPanelProps) {
   const { panelOpen, setPanelOpen, workingDirectory, sessionId, previewFile, setPreviewFile } = usePanel();
   const { t } = useTranslation();
+
+  // When agent dashboard is visible, hide the Agent Team section here
+  // (agents are shown in the main-area dashboard + subagent panel instead)
+  const agentDashboardCtx = useContext(AgentDashboardContext);
+  const hideAgentTeamSection = agentDashboardCtx?.dashboardVisible ?? false;
 
   const [tasksH, setTasksH] = useState<number>(() => {
     if (typeof window === "undefined") return DEFAULT_TASKS_H;
@@ -172,17 +178,20 @@ export function RightPanel({ width }: RightPanelProps) {
         </div>
 
         {/* Drag handle between Permissions and Agent Team */}
-        <VerticalResizeHandle onResize={handlePermissionsResize} />
+        {!hideAgentTeamSection && <VerticalResizeHandle onResize={handlePermissionsResize} />}
 
         {/* ── Agent Team ── fills remaining space, scrollable */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3">
-          <div className="py-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {t('panel.agentTeam')}
-            </span>
+        {/* Hidden when agent dashboard is visible (agents shown in main area + subagent panel) */}
+        {!hideAgentTeamSection && (
+          <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3">
+            <div className="py-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {t('panel.agentTeam')}
+              </span>
+            </div>
+            <AgentTeamPanel sessionId={sessionId} />
           </div>
-          <AgentTeamPanel sessionId={sessionId} />
-        </div>
+        )}
 
       </div>
     </aside>

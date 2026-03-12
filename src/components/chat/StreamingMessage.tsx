@@ -117,6 +117,7 @@ interface StreamingMessageProps {
   pendingPermission?: PermissionRequestEvent | null;
   onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string, updatedPermissions?: Array<Record<string, unknown>>) => void;
   permissionResolved?: 'allow' | 'deny' | null;
+  permissionQueueSize?: number;
   onForceStop?: () => void;
   streamStartedAt?: number;
   activeAgents?: AgentInfo[];
@@ -507,6 +508,7 @@ export function StreamingMessage({
   pendingPermission,
   onPermissionResponse,
   permissionResolved,
+  permissionQueueSize = 0,
   onForceStop,
   streamStartedAt,
   activeAgents,
@@ -589,6 +591,11 @@ export function StreamingMessage({
           >
             <ConfirmationTitle>
               <span className="font-medium">{pendingPermission?.toolName}</span>
+              {permissionQueueSize > 1 && (
+                <span className="ml-2 inline-flex items-center rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
+                  +{permissionQueueSize - 1} pending
+                </span>
+              )}
               {pendingPermission?.decisionReason && (
                 <span className="text-muted-foreground ml-2">
                   — {pendingPermission.decisionReason}
@@ -766,7 +773,7 @@ export function StreamingMessage({
         {/* Status bar during streaming — show permission wait status when awaiting authorization */}
         {isStreaming && <StreamingStatusBar statusText={
           pendingPermission && !permissionResolved
-            ? `Waiting for authorization: ${pendingPermission.toolName}`
+            ? `Waiting for authorization: ${pendingPermission.toolName}${permissionQueueSize > 1 ? ` (+${permissionQueueSize - 1} more)` : ''}`
             : statusText || getRunningCommandSummary()
         } onForceStop={onForceStop} streamStartedAt={streamStartedAt} />}
       </MessageContent>

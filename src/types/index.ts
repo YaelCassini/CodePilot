@@ -649,6 +649,7 @@ export interface SessionStreamSnapshot {
   statusText: string | undefined;
   pendingPermission: PermissionRequestEvent | null;
   permissionResolved: 'allow' | 'deny' | null;
+  permissionQueueSize: number;
   tokenUsage: TokenUsage | null;
   startedAt: number;
   completedAt: number | null;
@@ -697,6 +698,8 @@ export type AgentStatus = 'running' | 'completed' | 'failed' | 'stopped';
 export interface AgentInfo {
   agentId: string;
   agentType: string;
+  /** Human-readable role/description (e.g. "架构设计、技术方案、MCP接口规范") */
+  description?: string;
   startedAt: number;
   stoppedAt?: number;
   status: AgentStatus;

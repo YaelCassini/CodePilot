@@ -3,17 +3,18 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import crypto from "crypto";
+import { CLAUDE_GLOBAL_DIR, CLAUDE_PROJECT_DIR } from "@/lib/platform";
 
 function getGlobalCommandsDir(): string {
-  return path.join(os.homedir(), ".claude", "commands");
+  return path.join(os.homedir(), CLAUDE_GLOBAL_DIR, "commands");
 }
 
 function getProjectCommandsDir(cwd?: string): string {
-  return path.join(cwd || process.cwd(), ".claude", "commands");
+  return path.join(cwd || process.cwd(), CLAUDE_PROJECT_DIR, "commands");
 }
 
 function getProjectSkillsDir(cwd?: string): string {
-  return path.join(cwd || process.cwd(), ".claude", "skills");
+  return path.join(cwd || process.cwd(), CLAUDE_PROJECT_DIR, "skills");
 }
 
 function getInstalledSkillsDir(): string {
@@ -21,7 +22,7 @@ function getInstalledSkillsDir(): string {
 }
 
 function getClaudeSkillsDir(): string {
-  return path.join(os.homedir(), ".claude", "skills");
+  return path.join(os.homedir(), CLAUDE_GLOBAL_DIR, "skills");
 }
 
 type InstalledSource = "agents" | "claude";

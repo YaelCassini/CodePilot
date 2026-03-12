@@ -47,6 +47,7 @@ interface ActiveStream {
   sendMessageFn: ((content: string, files?: FileAttachment[]) => void) | null;
   activeAgentsMap: Map<string, AgentInfo>;
   sessionGrantedTools: string[];  // tools allowed once this run (display only, resets on restart)
+  permissionQueue: PermissionRequestEvent[];
 }
 
 export interface StartStreamParams {
@@ -94,6 +95,7 @@ function buildSnapshot(stream: ActiveStream): SessionStreamSnapshot {
     statusText: stream.snapshot.statusText,
     pendingPermission: stream.snapshot.pendingPermission,
     permissionResolved: stream.snapshot.permissionResolved,
+    permissionQueueSize: stream.permissionQueue.length,
     tokenUsage: stream.snapshot.tokenUsage,
     startedAt: stream.snapshot.startedAt,
     completedAt: stream.snapshot.completedAt,
@@ -164,6 +166,7 @@ export function startStream(params: StartStreamParams): void {
       statusText: undefined,
       pendingPermission: null,
       permissionResolved: null,
+      permissionQueueSize: 0,
       tokenUsage: null,
       startedAt: Date.now(),
       completedAt: null,
@@ -185,6 +188,7 @@ export function startStream(params: StartStreamParams): void {
     sendMessageFn: params.sendMessageFn ?? null,
     activeAgentsMap: new Map(),
     sessionGrantedTools: existing?.sessionGrantedTools ?? [],
+    permissionQueue: [],
   };
 
   map.set(params.sessionId, stream);
@@ -300,10 +304,18 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
       },
       onPermissionRequest: (permData) => {
         markActive();
+        const alreadyQueued = stream.permissionQueue.some(
+          (p) => p.permissionRequestId === permData.permissionRequestId,
+        );
+        if (!alreadyQueued) {
+          stream.permissionQueue.push(permData);
+        }
+        const current = stream.permissionQueue[0] ?? null;
         stream.snapshot = {
           ...stream.snapshot,
-          pendingPermission: permData,
+          pendingPermission: current,
           permissionResolved: null,
+          permissionQueueSize: stream.permissionQueue.length,
         };
         emit(stream, 'permission-request');
       },
@@ -323,9 +335,37 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
       },
       onAgentStart: (agentId, agentType, description, mainSessionId, projectPath) => {
         markActive();
+
+        // Exact ID match → enrich existing entry (SubagentStart + task_started for same agent)
+        const existing = stream.activeAgentsMap.get(agentId);
+        if (existing) {
+          let changed = false;
+          if (description && !existing.description) { existing.description = description; changed = true; }
+          if (mainSessionId && !existing.mainSessionId) { existing.mainSessionId = mainSessionId; changed = true; }
+          if (projectPath && !existing.projectPath) { existing.projectPath = projectPath; changed = true; }
+          if (changed) emit(stream, 'snapshot-updated');
+          return;
+        }
+
+        // Events WITH mainSessionId come from the SubagentStart hook (direct children).
+        // Events WITHOUT it come from task_started system messages which may include
+        // nested sub-subagents we don't want to surface. For those, only enrich an
+        // existing agent of the same type (add description); never create a new entry.
+        if (!mainSessionId) {
+          for (const [, agent] of stream.activeAgentsMap) {
+            if (agent.agentType === agentType && agent.status === 'running' && description && !agent.description) {
+              agent.description = description;
+              emit(stream, 'snapshot-updated');
+              return;
+            }
+          }
+          return; // skip — no session info, likely a nested subagent
+        }
+
         stream.activeAgentsMap.set(agentId, {
           agentId,
-          agentType: agentType || description || 'agent',
+          agentType: agentType || 'agent',
+          description: description || undefined,
           startedAt: Date.now(),
           status: 'running',
           mainSessionId: mainSessionId || undefined,
@@ -389,7 +429,9 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
       statusText: undefined,
       pendingPermission: null,
       permissionResolved: null,
+      permissionQueueSize: 0,
     };
+    stream.permissionQueue = [];
     stream.accumulatedText = '';
     stream.toolUsesArray = [];
     stream.toolResultsArray = [];
@@ -422,7 +464,9 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
           statusText: undefined,
           pendingPermission: null,
           permissionResolved: null,
+          permissionQueueSize: 0,
         };
+        stream.permissionQueue = [];
         stream.accumulatedText = '';
         stream.toolUsesArray = [];
         stream.toolResultsArray = [];
@@ -444,7 +488,9 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
           statusText: undefined,
           pendingPermission: null,
           permissionResolved: null,
+          permissionQueueSize: 0,
         };
+        stream.permissionQueue = [];
         stream.accumulatedText = '';
         stream.toolUsesArray = [];
         stream.toolResultsArray = [];
@@ -476,7 +522,9 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
           statusText: undefined,
           pendingPermission: null,
           permissionResolved: null,
+          permissionQueueSize: 0,
         };
+        stream.permissionQueue = [];
         stream.accumulatedText = '';
         stream.toolUsesArray = [];
         stream.toolResultsArray = [];
@@ -496,7 +544,9 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
         statusText: undefined,
         pendingPermission: null,
         permissionResolved: null,
+        permissionQueueSize: 0,
       };
+      stream.permissionQueue = [];
       stream.accumulatedText = '';
       stream.toolUsesArray = [];
       stream.toolResultsArray = [];
@@ -541,6 +591,7 @@ export function subscribe(sessionId: string, listener: StreamEventListener): () 
         statusText: undefined,
         pendingPermission: null,
         permissionResolved: null,
+        permissionQueueSize: 0,
         tokenUsage: null,
         startedAt: 0,
         completedAt: null,
@@ -562,6 +613,7 @@ export function subscribe(sessionId: string, listener: StreamEventListener): () 
       sendMessageFn: null,
       activeAgentsMap: new Map(),
       sessionGrantedTools: [],
+      permissionQueue: [],
     };
     map.set(sessionId, stream);
   }
@@ -616,19 +668,12 @@ export async function respondToPermission(
 
   const perm = stream.snapshot.pendingPermission;
 
-  // "Always allow for this project" (allow_session) — pass updatedPermissions to SDK.
-  // The SDK writes the rules into {cwd}/.claude/settings.local.json (permissions.allow[]),
-  // making them persistent across sessions. GUI does not maintain its own list.
-
-  // "Allow Once" (allow) — record toolName for display in the permissions panel
-  // (shows what was allowed in this run; resets on process restart).
   if (decision === 'allow' && perm.toolName) {
     if (!stream.sessionGrantedTools.includes(perm.toolName)) {
       stream.sessionGrantedTools = [...stream.sessionGrantedTools, perm.toolName];
     }
   }
 
-  // Merge explicit updatedPermissions with session-level suggestions when allow_session
   const resolvedPermissions =
     updatedPermissions ??
     (decision === 'allow_session' && perm.suggestions ? perm.suggestions : undefined);
@@ -644,7 +689,7 @@ export async function respondToPermission(
         },
   };
 
-  // Update snapshot immediately
+  // Show resolved state briefly
   stream.snapshot = {
     ...stream.snapshot,
     permissionResolved: decision === 'deny' ? 'deny' : 'allow',
@@ -662,18 +707,39 @@ export async function respondToPermission(
     // Best effort
   }
 
-  // Clear permission state after delay (only if no new request arrived)
+  // Dequeue the answered permission and advance to the next one
   const answeredId = perm.permissionRequestId;
   setTimeout(() => {
-    if (stream.snapshot.pendingPermission?.permissionRequestId === answeredId) {
-      stream.snapshot = {
-        ...stream.snapshot,
-        pendingPermission: null,
-        permissionResolved: null,
-      };
-      emit(stream, 'snapshot-updated');
-    }
-  }, 1000);
+    stream.permissionQueue = stream.permissionQueue.filter(
+      (p) => p.permissionRequestId !== answeredId,
+    );
+    const next = stream.permissionQueue[0] ?? null;
+    stream.snapshot = {
+      ...stream.snapshot,
+      pendingPermission: next,
+      permissionResolved: null,
+      permissionQueueSize: stream.permissionQueue.length,
+    };
+    emit(stream, next ? 'permission-request' : 'snapshot-updated');
+  }, 600);
+}
+
+// ==========================================
+// Session permission management
+// ==========================================
+
+export function revokeSessionTool(sessionId: string, toolName: string): void {
+  const stream = getStreamsMap().get(sessionId);
+  if (!stream) return;
+  stream.sessionGrantedTools = stream.sessionGrantedTools.filter((t) => t !== toolName);
+  emit(stream, 'snapshot-updated');
+}
+
+export function revokeAllSessionTools(sessionId: string): void {
+  const stream = getStreamsMap().get(sessionId);
+  if (!stream) return;
+  stream.sessionGrantedTools = [];
+  emit(stream, 'snapshot-updated');
 }
 
 // ==========================================

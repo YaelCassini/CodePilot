@@ -64,6 +64,7 @@ interface MessageListProps {
   pendingPermission?: PermissionRequestEvent | null;
   onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string, updatedPermissions?: Array<Record<string, unknown>>) => void;
   permissionResolved?: 'allow' | 'deny' | null;
+  permissionQueueSize?: number;
   onForceStop?: () => void;
   hasMore?: boolean;
   loadingMore?: boolean;
@@ -83,6 +84,7 @@ export function MessageList({
   pendingPermission,
   onPermissionResponse,
   permissionResolved,
+  permissionQueueSize = 0,
   onForceStop,
   hasMore,
   loadingMore,
@@ -159,6 +161,7 @@ export function MessageList({
             pendingPermission={pendingPermission}
             onPermissionResponse={onPermissionResponse}
             permissionResolved={permissionResolved}
+            permissionQueueSize={permissionQueueSize}
             onForceStop={onForceStop}
             activeAgents={activeAgents}
             streamStartedAt={streamStartedAt}

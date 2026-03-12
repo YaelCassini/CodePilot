@@ -17,7 +17,10 @@ import { BatchImageGenContext, useBatchImageGenState } from "@/hooks/useBatchIma
 import { SplitContext, type SplitSession } from "@/hooks/useSplit";
 import { SplitChatContainer } from "./SplitChatContainer";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { getActiveSessionIds, getSnapshot } from "@/lib/stream-session-manager";
+import { getActiveSessionIds, getSnapshot, subscribe } from "@/lib/stream-session-manager";
+import { AgentDashboardContext } from "@/hooks/useAgentDashboard";
+import { AgentTeamDashboard } from "@/components/agent";
+import type { AgentInfo } from "@/types";
 
 const SPLIT_SESSIONS_KEY = "codepilot:split-sessions";
 const SPLIT_ACTIVE_COLUMN_KEY = "codepilot:split-active-column";
@@ -569,6 +572,49 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     [panelOpen, setPanelOpen, panelContent, workingDirectory, sessionId, sessionTitle, streamingSessionId, pendingApprovalSessionId, activeStreamingSessions, pendingApprovalSessionIds, previewFile, setPreviewFile, previewViewMode]
   );
 
+  // --- Agent Dashboard state ---
+  const [dashboardAgents, setDashboardAgents] = useState<AgentInfo[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+
+  // Subscribe to agent changes for the current session
+  useEffect(() => {
+    if (!sessionId) {
+      setDashboardAgents([]);
+      return;
+    }
+
+    const sync = () => {
+      const snap = getSnapshot(sessionId);
+      setDashboardAgents(snap?.activeAgents ?? []);
+    };
+    sync();
+    return subscribe(sessionId, sync);
+  }, [sessionId]);
+
+  // Also sync on stream-session-event (covers cross-session agent starts)
+  useEffect(() => {
+    const handler = () => {
+      if (!sessionId) return;
+      const snap = getSnapshot(sessionId);
+      setDashboardAgents(snap?.activeAgents ?? []);
+    };
+    window.addEventListener("stream-session-event", handler);
+    return () => window.removeEventListener("stream-session-event", handler);
+  }, [sessionId]);
+
+  const dashboardVisible = dashboardAgents.length > 0;
+
+
+  const agentDashboardContextValue = useMemo(
+    () => ({
+      agents: dashboardAgents,
+      selectedAgentId,
+      setSelectedAgentId,
+      dashboardVisible,
+    }),
+    [dashboardAgents, selectedAgentId, dashboardVisible],
+  );
+
   const imageGenValue = useImageGenState();
   const batchImageGenValue = useBatchImageGenState();
 
@@ -576,6 +622,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <UpdateContext.Provider value={updateContextValue}>
       <PanelContext.Provider value={panelContextValue}>
         <SplitContext.Provider value={splitContextValue}>
+        <AgentDashboardContext.Provider value={agentDashboardContextValue}>
         <ImageGenContext.Provider value={imageGenValue}>
         <BatchImageGenContext.Provider value={batchImageGenValue}>
         <TooltipProvider delayDuration={300}>
@@ -601,7 +648,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               />
               <UpdateBanner />
               <main className="relative flex-1 overflow-hidden">
-                {isSplitActive ? (
+                {dashboardVisible && isChatDetailRoute ? (
+                  /* When agents are active: split main area between chat and agent dashboard */
+                  <div className="flex h-full">
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      {isSplitActive ? (
+                        <SplitChatContainer />
+                      ) : (
+                        <ErrorBoundary>{children}</ErrorBoundary>
+                      )}
+                    </div>
+                    <div className="w-px bg-border shrink-0" />
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <ErrorBoundary>
+                        <AgentTeamDashboard />
+                      </ErrorBoundary>
+                    </div>
+                  </div>
+                ) : isSplitActive ? (
                   <SplitChatContainer />
                 ) : (
                   <ErrorBoundary>{children}</ErrorBoundary>
@@ -622,19 +686,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 />
               </ErrorBoundary>
             )}
-            {isChatDetailRoute && panelOpen && (
+            {/* Subagent detail panel — reserved for nested subagent output (hidden when no nested subagents) */}
+            {/* Original right panel — always shown on chat detail routes */}
+            {isChatDetailRoute && panelOpen && !dashboardVisible && (
               <ResizeHandle side="right" onResize={handleRightPanelResize} onResizeEnd={handleRightPanelResizeEnd} />
             )}
-            {isChatDetailRoute && (
+            {isChatDetailRoute && !dashboardVisible && (
               <ErrorBoundary>
                 <RightPanel width={rightPanelWidth} />
               </ErrorBoundary>
+            )}
+            {/* When dashboard is visible, show a condensed right panel */}
+            {isChatDetailRoute && dashboardVisible && panelOpen && (
+              <>
+                <ResizeHandle side="right" onResize={handleRightPanelResize} onResizeEnd={handleRightPanelResizeEnd} />
+                <ErrorBoundary>
+                  <RightPanel width={rightPanelWidth} />
+                </ErrorBoundary>
+              </>
             )}
           </div>
           <UpdateDialog />
         </TooltipProvider>
         </BatchImageGenContext.Provider>
         </ImageGenContext.Provider>
+        </AgentDashboardContext.Provider>
         </SplitContext.Provider>
       </PanelContext.Provider>
     </UpdateContext.Provider>
